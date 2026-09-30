@@ -14,7 +14,7 @@ validation are complete, use the repository skill at
 `.agents/skills/web-ui-demo/SKILL.md` to record the final behavior immediately
 before opening the draft pull request. Replace the video if a later commit
 changes visible behavior; changes without visible UI impact should mark the PR
-template's `UI demonstration` section as not applicable.
+template's `Video demonstration` section as not applicable.
 
 The same skill can be invoked manually as `$web-ui-demo` to record or view a
 demo without creating or updating a pull request. All recordings are stored in

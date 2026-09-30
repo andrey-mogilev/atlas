@@ -36,7 +36,7 @@ to record the intended behavior.
 - For every change that affects visible web UI behavior, use the repository's
   `web-ui-demo` skill. After final UI validation and immediately before opening
   the pull request, record the changed behavior and add the current video to a
-  `UI demonstration` section in the pull request description. Replace the
+  `Video demonstration` section in the pull request description. Replace the
   recording whenever a later commit changes visible behavior. Store recordings
   locally in `/Users/andrey.mogilev/Projects/Videos/`.
 - Commit and push the change branch to GitHub, then open a draft pull request

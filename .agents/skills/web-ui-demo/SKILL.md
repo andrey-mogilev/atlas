@@ -43,7 +43,7 @@ When the user asks to see a demo, list or identify the relevant files in `/Users
 
 This section applies only when the demo is evidence for a UI-changing branch or the user explicitly asks to add a demo to a pull request. A manual invocation does not imply permission to create or modify a pull request.
 
-Record after the final UI-affecting change and just before creating the draft pull request. In the PR description, add a `## UI demonstration` section that states what the recording shows and embeds or links the uploaded video from `/Users/andrey.mogilev/Projects/Videos/`. Prefer uploading through GitHub's PR editor so the media remains accessible to reviewers; verify the rendered description opens or plays it.
+Record after the final UI-affecting change and just before creating the draft pull request. In the PR description, complete the `## Video demonstration` section by stating what the recording shows and embedding or linking the uploaded video from `/Users/andrey.mogilev/Projects/Videos/`. Prefer uploading through GitHub's PR editor so the media remains accessible to reviewers; verify the rendered description opens or plays it.
 
 If a later commit changes visible behavior, create a replacement recording from the latest revision and update the same PR section. Remove obsolete links so the description presents one authoritative current demonstration.
 
