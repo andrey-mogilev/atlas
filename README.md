@@ -25,11 +25,35 @@ folder may be written as a relative or absolute path (for example,
 Git branch-and-commit behavior. A local folder that is not a Git working tree
 is scanned directly, is labelled `local`, and uses `<NONE>` as its commit.
 
-Each unique skill is shown with its repository-relative path and ID, a link,
-and its description. Identical copies add an “Also found at” list with every
-other path, ID, and source link. The heading shows the branch and commit. A scan with
-no skills prints a short message. Errors go to standard error with a nonzero
-exit code.
+The default CLI view shows numbered skill names, wrapped descriptions, and all
+repository-relative paths. Identical copies share one description and display a
+location count. Names come from YAML `name`, then the first Markdown heading,
+then the skill directory name. The heading shows the branch and a 12-character
+commit prefix. A scan with no skills prints a short message. Errors go to
+standard error with a nonzero exit code.
+
+```sh
+skill-atlas scan ./example-skills
+skill-atlas scan ./example-skills --verbose
+skill-atlas scan ./example-skills --json > skills.json
+skill-atlas scan ./example-skills --color never
+skill-atlas scan --help
+```
+
+`--verbose` preserves the detailed plain-text format: full commit, per-location
+IDs and source URLs, and “Also found at” paths. `--json` emits a versioned object
+with full metadata and every location; it cannot be combined with `--verbose`.
+Scan options may precede or follow the target.
+
+Interactive terminals use bold names, cyan accents, muted paths, and red error
+labels. `--color auto|always|never` controls styling; automatic mode disables it
+for redirected output, `TERM=dumb`, or the presence of `NO_COLOR`. An explicit
+`--color always` overrides `NO_COLOR`. JSON and verbose output are always plain.
+Known compatible terminals also get clickable paths (iTerm2, WezTerm, VS Code,
+Kitty, and Windows Terminal); links are disabled with color or when redirected.
+Descriptions wrap using `COLUMNS` (20–500, otherwise 80), measured in Unicode
+code points; wide glyphs may occupy extra terminal cells. Paths stay unbroken
+for copying. Interactive arrow-key selection is not included in this release.
 
 Discovery is limited to named skill directories under `skills/`,
 `.agents/skills/`, `.claude/skills/`, `.codex/skills/`, `.cursor/skills/`,
@@ -72,9 +96,10 @@ front matter, or trailing newlines remain distinct even if names/descriptions
 match. The smallest path in bytewise UTF-8 order represents each group; every
 location retains its own stable ID. Groups do not merge across scans or repositories.
 
-For example, three identical copies produce `Found 1 unique skill across 3
-locations`, with the other two copies listed below the representative. Scans
-without duplicates retain the previous three-line output. In the web UI, each
+For example, three identical copies produce `Found 1 skill across 3 locations`
+in compact output, with all three paths beneath a single description. Verbose
+output uses `Found 1 unique skill across 3 locations` and retains the original
+three-line blocks and additional location list. In the web UI, each
 group has one card and a locations list (expanded for up to four locations).
 Results and history show unique-skill and location counts separately.
 
@@ -111,7 +136,7 @@ Git scans read committed files; non-Git folders read their current files and
 require an empty branch field.
 
 The page shows the branch, full commit, paths, stable IDs, source links, and
-descriptions. “View CLI output” provides the same formatted text as `scan`, with
+descriptions. “View CLI output” provides the same formatted text as `scan --verbose`, with
 a copy button. Non-web source URLs are displayed as text because browsers may
 block local file and SSH links. Scans run in the background, one at a time;
 another submission receives a busy message. Reloading the page in the same tab

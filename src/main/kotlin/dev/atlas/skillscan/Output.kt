@@ -3,27 +3,27 @@ package dev.atlas.skillscan
 import java.net.URI
 
 internal fun formatFindings(snapshot: Snapshot, findings: List<Finding>): String {
-    if (findings.isEmpty()) return "No SKILL.md files found on ${snapshot.branch} at ${snapshot.commit}."
+    if (findings.isEmpty()) return "No SKILL.md files found on ${snapshot.branch.safeLine()} at ${snapshot.commit.safeLine()}."
     val groups = groupFindings(findings)
     val count = groups.size
     val locations = if (count == findings.size) "" else " across ${findings.size} locations"
     val unique = if (count == findings.size) "" else "unique "
-    val heading = "Found $count $unique${if (count == 1) "skill" else "skills"}$locations on ${snapshot.branch} at ${snapshot.commit}:"
+    val heading = "Found $count $unique${if (count == 1) "skill" else "skills"}$locations on ${snapshot.branch.safeLine()} at ${snapshot.commit.safeLine()}:"
     return heading + "\n\n" + groups.joinToString("\n\n") { group ->
         val finding = group.representative
         val otherLocations = if (group.locations.size == 1) "" else "\n  Also found at:\n" +
             group.locations.drop(1).joinToString("\n") {
-                "    ${it.path.safeLine()}  [${it.id}]\n      Link: ${it.sourceLink()}"
+                "    ${it.path.safeLine()}  [${it.id.safeLine()}]\n      Link: ${it.sourceLink().safeLine()}"
             }
-        "${finding.path.safeLine()}  [${finding.id}]\n" +
-            "  Link: ${finding.sourceLink()}\n" +
+        "${finding.path.safeLine()}  [${finding.id.safeLine()}]\n" +
+            "  Link: ${finding.sourceLink().safeLine()}\n" +
             "  Description: ${finding.description.replace(Regex("\\s+"), " ").trim().safeLine().ifEmpty { "(none)" }}" + otherLocations
     }
 }
 
-private fun String.safeLine(): String = buildString {
+internal fun String.safeLine(): String = buildString {
     for (character in this@safeLine) {
-        if (character.code < 0x20 || character.code == 0x7f) {
+        if (character.isISOControl() || Character.getType(character) == Character.FORMAT.toInt()) {
             append("\\u%04x".format(character.code))
         } else {
             append(character)

@@ -69,7 +69,7 @@ class WebServerIT {
                     val locations = (findings.single() as Map<*, *>)["locations"] as List<*>
                     assertEquals(2, locations.size)
                     assertEquals(2, locations.map { (it as Map<*, *>)["id"] }.toSet().size)
-                    val cli = ProcessBuilder(java, "-jar", jar, "scan", "./source")
+                    val cli = ProcessBuilder(java, "-jar", jar, "scan", "./source", "--verbose")
                         .directory(temp.toFile()).redirectError(ProcessBuilder.Redirect.INHERIT)
                         .apply { environment()["SKILL_SCAN_DB_PATH"] = temp.resolve("scan.db").toString() }.start()
                     try {

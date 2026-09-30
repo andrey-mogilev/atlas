@@ -46,7 +46,7 @@ internal class SkillDatabase(private val path: Path) {
                                 it.setString(1, skillId); it.setLong(2, scanId); it.setString(3, hash); it.executeUpdate()
                             }
                         }
-                        Finding(skillId, url, skill.path, skill.description, commit, hash)
+                        Finding(skillId, url, skill.path, skill.description, commit, hash, extractName(skill.content, skill.path))
                     }
                     connection.commit()
                     return output
@@ -115,7 +115,7 @@ internal class SkillDatabase(private val path: Path) {
                         val canonical = rows.getString(2)
                         val snapshot = Snapshot(rows.getString(3), rows.getString(4), emptyList())
                         val findings = connection.prepareStatement("""
-                            SELECT skills.id, source_path, description, content_hash FROM skill_versions
+                            SELECT skills.id, source_path, description, content_hash, content FROM skill_versions
                             JOIN skills ON skills.id = skill_id JOIN skill_contents ON hash = content_hash
                             WHERE scan_id = ? ORDER BY source_path COLLATE BINARY
                         """.trimIndent()).use { query ->
@@ -123,7 +123,8 @@ internal class SkillDatabase(private val path: Path) {
                             query.executeQuery().use { skills ->
                                 buildList {
                                     while (skills.next()) add(Finding(skills.getString(1), canonical,
-                                        skills.getString(2), skills.getString(3), snapshot.commit, skills.getString(4)))
+                                        skills.getString(2), skills.getString(3), snapshot.commit, skills.getString(4),
+                                        extractName(skills.getString(5), skills.getString(2))))
                                 }
                             }
                         }

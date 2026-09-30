@@ -9,7 +9,7 @@ internal class ScanFailure(val exitCode: Int, message: String) : RuntimeExceptio
 
 internal data class SkillFile(val path: String, val content: String, val description: String)
 internal data class Finding(val id: String, val repositoryUrl: String, val path: String, val description: String, val commit: String,
-                            val contentHash: String)
+                            val contentHash: String, val name: String = path.substringBeforeLast('/').substringAfterLast('/'))
 
 fun main(args: Array<String>) {
     exitProcess(runCommand(args))
@@ -18,18 +18,27 @@ fun main(args: Array<String>) {
 internal fun runCommand(args: Array<String>): Int = if (args.firstOrNull() == "serve") runServer(args) else runCli(args)
 
 internal fun runCli(args: Array<String>, environment: Map<String, String> = System.getenv()): Int {
+    // Argument errors remain plain until the complete option set is validated.
+    var presentation = CliPresentation(false, false, 80)
     try {
-        if (args.size !in 2..4 || args[0] != "scan" || (args.size == 4 && args[2] != "--branch") || args.size == 3) {
-            throw ScanFailure(2, "usage: skill-atlas scan <repository-url-or-folder> [--branch <branch-name>]")
+        if (args.toList() in listOf(listOf("--help"), listOf("-h"), listOf("scan", "--help"), listOf("scan", "-h"))) {
+            println(CLI_HELP)
+            return 0
         }
-        val result = ScanService.fromEnvironment(environment).scan(args[1], args.getOrNull(3))
-        println(formatFindings(result.snapshot, result.findings))
+        val options = parseScanOptions(args)
+        presentation = CliPresentation.fromEnvironment(environment, options.color, machineReadable = options.json)
+        val result = ScanService.fromEnvironment(environment).scan(options.target, options.branch)
+        println(when {
+            options.json -> formatJson(result)
+            options.verbose -> formatFindings(result.snapshot, result.findings)
+            else -> formatCompact(result, presentation)
+        })
         return 0
     } catch (e: ScanFailure) {
-        System.err.println("error: ${e.message}")
+        System.err.println(presentation.paint("31", "error:") + " " + (e.message ?: "scan failed").safeLine())
         return e.exitCode
     } catch (e: Exception) {
-        System.err.println("error: unexpected failure: ${e.message ?: e.javaClass.simpleName}")
+        System.err.println(presentation.paint("31", "error:") + " unexpected failure: " + (e.message ?: e.javaClass.simpleName).safeLine())
         return 1
     }
 }

@@ -51,7 +51,7 @@ class DuplicateSkillsIT {
         val log = temp.resolve("cli.log")
         val errors = temp.resolve("cli.err")
         val process = ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-jar",
-            Path.of("target/skill-scan-0.1.0.jar").toAbsolutePath().toString(), "scan", repo.toString())
+            Path.of("target/skill-scan-0.1.0.jar").toAbsolutePath().toString(), "scan", repo.toString(), "--verbose")
             .redirectOutput(log.toFile()).redirectError(errors.toFile())
             .apply { environment()["SKILL_SCAN_DB_PATH"] = temp.resolve("skills.db").toString() }.start()
         try {

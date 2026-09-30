@@ -10,12 +10,12 @@ default branch or an explicitly requested branch.
 The initial command is:
 
 ```text
-scan <repository-url-or-folder> [--branch <branch-name>]
+scan <repository-url-or-folder> [--branch <branch-name>] [--verbose | --json] [--color auto|always|never]
 ```
 
-For every discovered skill, the command shows its repository-relative path,
-stable local ID, source link, and human-readable description. The heading shows
-the branch and commit SHA at which the skills were found.
+For every unique skill, the command shows its name, human-readable description,
+and all repository-relative paths. Verbose and JSON modes expose stable local
+IDs, full source links, and the full scanned commit SHA.
 
 ## 2. Scope
 
@@ -50,7 +50,7 @@ the branch and commit SHA at which the skills were found.
 ### Synopsis
 
 ```text
-skill-atlas scan <repository-url-or-folder> [--branch <branch-name>]
+skill-atlas scan <repository-url-or-folder> [--branch <branch-name>] [--verbose | --json] [--color auto|always|never]
 ```
 
 `<repository-url-or-folder>` may be a Git URL accepted by the installed Git
@@ -73,7 +73,52 @@ only a valid Git branch short name (for example, `release/2026.1`), not an
 arbitrary ref, tag, or commit SHA. A missing, inaccessible, or non-branch ref
 is a branch-resolution failure (exit `4`).
 
-### Success output
+Options may precede or follow the single target. Unknown/duplicate options,
+missing values/targets, extra targets, invalid color modes, and combining
+`--verbose` with `--json` fail with exit 2 before scanning or persistence.
+Argument-validation diagnostics are always plain text.
+`skill-atlas --help` and `skill-atlas scan --help` (also `-h`) print help and
+exit 0 without accessing sources or the database.
+
+### Compact success output (default)
+
+Show unique-skill and total-location counts, then the selected branch and first
+12 characters of the commit (`<NONE>` remains unchanged). In deterministic
+representative-path order, show numbered bold skill names, a location count for
+duplicates, a description once per group, and every indented path. IDs and full
+URLs are omitted. Missing descriptions display `(no description)`.
+
+```text
+Found 1 skill across 2 locations
+on main at 9f0a1b2c3d4e
+
+1. Release notes  [2 locations]
+   Guidance for preparing release notes.
+    .agents/skills/release/SKILL.md
+    skills/release/SKILL.md
+```
+
+Descriptions collapse tabs/newlines and wrap to `COLUMNS` minus indentation.
+Valid widths are 20–500; missing/invalid values use 80. Wrapping counts Unicode
+code points (not display cells), preserves surrogate pairs, and splits long
+words; wide glyphs may consume extra cells. Paths and titles remain unbroken.
+This is a static report, not an interactive selector.
+
+Color defaults to `auto`, enabled only when Java reports an attached console,
+`TERM` is not `dumb`, and `NO_COLOR` is absent (even an empty value disables it).
+`--color always` overrides terminal detection and `NO_COLOR`; `never` disables
+color. Compact output uses bold names, cyan numbers/counts, and dim metadata;
+errors use a red label when enabled. Verbose text remains unstyled. Known
+OSC-8-compatible terminals (`TERM_PROGRAM` of iTerm.app, WezTerm, or vscode;
+`TERM=xterm-kitty`; or `WT_SESSION` present) get clickable compact paths only
+when color is enabled and a console is attached. HTTP(S) links use the scanned
+commit; local file links point to the working filesystem, which may differ
+from a scanned Git commit. Other schemes and credential-bearing links are not
+made clickable. Redirected output never contains automatic ANSI/OSC sequences.
+Human-readable source fields and errors escape control/format characters to
+prevent terminal escape injection; source files and stored metadata are unchanged.
+
+### Verbose success output (`--verbose`)
 
 Write a heading with the selected branch and full commit SHA, followed by a
 three-line block for every unique skill, in deterministic path order
@@ -104,6 +149,19 @@ An empty successful scan prints a `No SKILL.md files found` message and exits
 `0`.
 
 Diagnostic messages go to standard error only.
+
+### JSON success output (`--json`)
+
+Emit exactly one JSON object plus a newline, with no ANSI/OSC styling even when
+`--color always` is specified. Keys are `schemaVersion` (1), `target` (canonical
+repository identity), `branch`, `commit` (full), `skillCount`, `locationCount`,
+and `skills`. Each skill has `name`, `description`, `contentHash`, and `locations`;
+each location has `id`, `path`, and `link`. Ordering follows the same bytewise
+path/group ordering as text. Metadata retains original values with JSON escaping
+rather than text sanitization; absent descriptions remain empty strings. Empty
+scans have zero counts and an empty `skills` array. Errors retain existing exit
+codes and plain stderr diagnostics, with no partial JSON on stdout. JSON errors
+are not a separate structured protocol.
 
 ### Exit codes
 
@@ -179,6 +237,13 @@ format.
 The full source content should also be stored so that future versions can
 re-extract metadata without revisiting the remote. Invalid front matter is not
 a scan failure; it falls back to Markdown extraction.
+
+Display names use a nonblank scalar YAML `name`, then the first ATX Markdown
+heading outside fenced code blocks after front matter (levels 1–6), then the
+parent directory name. BOM and LF/CRLF are supported. Invalid front matter or
+non-scalar/blank names fall back to Markdown. Names are derived from source
+contents on scan and stored contents on history read; no schema migration is
+needed. Names never affect duplicate matching or stable location IDs.
 
 ## 6. Local database
 
@@ -264,8 +329,9 @@ Identity rules:
 3. Given multiple `SKILL.md` files, stdout contains one description per unique
    content group, ordered by the representative path, with all locations listed.
    A `SKILL.md` under `docs/` or `.claude/notes/` is not reported.
-4. The heading includes the full scanned SHA. Each block includes a stable ID,
-   source path, link, and description (or `(none)`).
+4. Compact output shows names, paths, descriptions and a commit prefix.
+   `--verbose` includes the full SHA, stable IDs and links; JSON retains all
+   metadata and locations without terminal styling.
 5. A second scan at the same head is idempotent and emits the same blocks.
 6. After a new selected-branch commit changes a skill, the same logical `id` is
    emitted with the new commit and a new stored version.
@@ -280,7 +346,7 @@ Identity rules:
 
 ## 9. First-release choices
 
-- The output is formatted text with three lines per unique skill, plus duplicate locations.
+- Default output is compact text; verbose text and versioned JSON are available.
 - URLs are normalized within their transport form. HTTPS and SSH spellings are
   separate repository identities.
 - An unreadable or non-UTF-8 `SKILL.md` aborts the scan before persistence.
@@ -302,7 +368,8 @@ The application remains a Java 17+ shaded JAR, using the JDK HTTP server with
 bundled HTML, CSS, and JavaScript. There are no external browser resources or
 frontend build dependencies. CLI and HTTP adapters call the same `ScanService`,
 which validates targets, invokes `GitScanner`, and commits through
-`SkillDatabase`. Both adapters use the same grouping and formatting rules.
+`SkillDatabase`. Both adapters use the same grouping; web text exports use the
+verbose CLI formatter, independent of terminal settings.
 Commands, error codes, and stable location identities are preserved; the storage
 schema is migrated as described in section 11. Configuration is read from the server's
 environment at startup; a browser cannot change it.
@@ -326,7 +393,7 @@ environment at startup; a browser cannot change it.
 - Successful results show branch, full commit, stable IDs, paths, source links,
   and descriptions in the scanner's deterministic order. Missing descriptions
   display `(none)`. Empty scans have an explicit successful empty state.
-- Expandable, copyable text uses the exact CLI formatter. HTTP(S) source links
+- Expandable, copyable text uses the exact `scan --verbose` formatter. HTTP(S) source links
   are clickable; other source URLs are copyable text. Descriptions and source
   paths are rendered as text, never interpreted as HTML or skill instructions.
 - Failed jobs carry the same numeric error categories as the CLI (1–5) and a
@@ -414,7 +481,8 @@ the set of locations changes. All member IDs remain attached to their original
 paths. When one copy changes at a later commit, it forms a separate group with
 the same location ID; previous scans retain their original grouping.
 
-The CLI prints one description per group and all location paths, IDs, and links.
+The CLI prints one description per group and all location paths; verbose and
+JSON modes also expose every location ID and link.
 The web UI shows one card per group, with a locations list expanded by default
 for up to four locations and collapsed for larger groups. It reports, for
 example, `4 unique skills across 7 locations`, including in history. Source
@@ -440,7 +508,9 @@ pre-upgrade database copy; older binaries cannot use the new schema.
 Acceptance tests cover LF/CRLF copies, same-description different instructions,
 unchanged repeated scans, a changed copy at a later Git commit, preserved IDs
 and links, history reload, successful and failed legacy migration, shared
-content storage, and identical packaged CLI/web formatted output. The
+content storage, and identical packaged verbose CLI/web formatted output.
+CLI formatting tests cover names, wrapping, color policy, terminal controls,
+hyperlinks, option validation, JSON/empty output, and packaged command modes. The
 `andrey-mogilev/atlas-test` default branch contains four unique contents across
 seven locations (groups of 3, 2, 1, and 1) plus excluded-file fixtures. Its own
 CI validates those counts and preserves an actual CRLF fixture.
