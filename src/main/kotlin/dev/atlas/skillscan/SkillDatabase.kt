@@ -39,11 +39,14 @@ internal class SkillDatabase(private val path: Path) {
                         val skillId = connection.scalarString(
                             "SELECT id FROM skills WHERE repository_id = ? AND source_path = ?", repositoryId, skill.path
                         )
-                        connection.prepareStatement("INSERT OR IGNORE INTO skill_versions(skill_id, scan_id, description, content) VALUES(?, ?, ?, ?)").use {
-                            it.setString(1, skillId); it.setLong(2, scanId); it.setString(3, skill.description)
-                            it.setString(4, skill.content); it.executeUpdate()
+                        val hash = contentHash(skill.content)
+                        if (connection.scalarLong("SELECT COUNT(*) FROM skill_versions WHERE skill_id = ? AND scan_id = ?", skillId, scanId) == 0L) {
+                            storeContent(connection, skill.content, skill.description)
+                            connection.prepareStatement("INSERT INTO skill_versions(skill_id, scan_id, content_hash) VALUES(?, ?, ?)").use {
+                                it.setString(1, skillId); it.setLong(2, scanId); it.setString(3, hash); it.executeUpdate()
+                            }
                         }
-                        Finding(skillId, url, skill.path, skill.description, commit)
+                        Finding(skillId, url, skill.path, skill.description, commit, hash)
                     }
                     connection.commit()
                     return output
@@ -66,10 +69,11 @@ internal class SkillDatabase(private val path: Path) {
         return try {
             if (Files.notExists(path)) return emptyList()
             DriverManager.getConnection("jdbc:sqlite:$path").use { connection ->
+                prepareHistory(connection)
                 connection.prepareStatement(
                     """
                     SELECT scans.requested_url, repositories.canonical_url, scans.scanned_branch, scans.commit_sha,
-                           scans.scanned_at, COUNT(skill_versions.id), scans.id
+                           scans.scanned_at, COUNT(DISTINCT skill_versions.content_hash), scans.id, COUNT(skill_versions.id)
                     FROM scans
                     JOIN repositories ON repositories.id = scans.repository_id
                     LEFT JOIN skill_versions ON skill_versions.scan_id = scans.id
@@ -84,7 +88,7 @@ internal class SkillDatabase(private val path: Path) {
                             while (rows.next()) add(StoredScan(
                                 requestedTarget = rows.getString(1), canonicalTarget = rows.getString(2),
                                 branch = rows.getString(3), commit = rows.getString(4),
-                                scannedAt = rows.getString(5), skillCount = rows.getInt(6), id = rows.getLong(7)
+                                scannedAt = rows.getString(5), skillCount = rows.getInt(6), id = rows.getLong(7), locationCount = rows.getInt(8)
                             ))
                         }
                     }
@@ -99,6 +103,7 @@ internal class SkillDatabase(private val path: Path) {
         if (Files.notExists(path)) return null
         try {
             DriverManager.getConnection("jdbc:sqlite:$path").use { connection ->
+                prepareHistory(connection)
                 connection.prepareStatement("""
                     SELECT requested_url, canonical_url, scanned_branch, commit_sha FROM scans
                     JOIN repositories ON repositories.id = repository_id WHERE scans.id = ?
@@ -110,14 +115,15 @@ internal class SkillDatabase(private val path: Path) {
                         val canonical = rows.getString(2)
                         val snapshot = Snapshot(rows.getString(3), rows.getString(4), emptyList())
                         val findings = connection.prepareStatement("""
-                            SELECT skills.id, source_path, description FROM skill_versions
-                            JOIN skills ON skills.id = skill_id WHERE scan_id = ? ORDER BY source_path COLLATE BINARY
+                            SELECT skills.id, source_path, description, content_hash FROM skill_versions
+                            JOIN skills ON skills.id = skill_id JOIN skill_contents ON hash = content_hash
+                            WHERE scan_id = ? ORDER BY source_path COLLATE BINARY
                         """.trimIndent()).use { query ->
                             query.setLong(1, id)
                             query.executeQuery().use { skills ->
                                 buildList {
                                     while (skills.next()) add(Finding(skills.getString(1), canonical,
-                                        skills.getString(2), skills.getString(3), snapshot.commit))
+                                        skills.getString(2), skills.getString(3), snapshot.commit, skills.getString(4)))
                                 }
                             }
                         }
@@ -128,6 +134,31 @@ internal class SkillDatabase(private val path: Path) {
         } catch (_: SQLException) {
             throw ScanFailure(5, "could not read scan history from database: $path")
         }
+    }
+
+    private fun prepareHistory(connection: Connection) {
+        connection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
+        connection.autoCommit = false
+        try {
+            createSchema(connection)
+            connection.commit()
+        } catch (e: Exception) {
+            connection.rollback()
+            throw e
+        } finally { connection.autoCommit = true }
+    }
+
+    private fun storeContent(connection: Connection, content: String, description: String): String {
+        val normalized = normalizedContent(content)
+        val hash = contentHash(normalized)
+        connection.prepareStatement("INSERT OR IGNORE INTO skill_contents(hash, description, content) VALUES(?, ?, ?)").use {
+            it.setString(1, hash); it.setString(2, description); it.setString(3, normalized); it.executeUpdate()
+        }
+        // Do not silently coalesce different contents even in the event of a digest collision.
+        if (connection.scalarString("SELECT content FROM skill_contents WHERE hash = ?", hash) != normalized) {
+            throw SQLException("skill content hash collision")
+        }
+        return hash
     }
 
     private fun createSchema(connection: Connection) {
@@ -162,15 +193,55 @@ internal class SkillDatabase(private val path: Path) {
                 )
             """.trimIndent())
             statement.execute("""
+                CREATE TABLE IF NOT EXISTS skill_contents (
+                  hash TEXT PRIMARY KEY NOT NULL,
+                  description TEXT NOT NULL,
+                  content TEXT NOT NULL
+                )
+            """.trimIndent())
+            statement.execute("""
                 CREATE TABLE IF NOT EXISTS skill_versions (
                   id INTEGER PRIMARY KEY,
                   skill_id TEXT NOT NULL REFERENCES skills(id),
                   scan_id INTEGER NOT NULL REFERENCES scans(id),
-                  description TEXT NOT NULL,
-                  content TEXT NOT NULL,
+                  content_hash TEXT NOT NULL REFERENCES skill_contents(hash),
                   UNIQUE(skill_id, scan_id)
                 )
             """.trimIndent())
+        }
+        val legacy = connection.createStatement().use { statement ->
+            statement.executeQuery("PRAGMA table_info(skill_versions)").use { columns ->
+                var found = false
+                while (columns.next()) if (columns.getString("name") == "content") found = true
+                found
+            }
+        }
+        if (legacy) migrateContents(connection)
+    }
+
+    /** Runs inside the caller's transaction: any failure restores the entire original schema/data. */
+    private fun migrateContents(connection: Connection) {
+        connection.createStatement().use { statement ->
+            statement.execute("""
+                CREATE TABLE skill_versions_deduplicated (
+                  id INTEGER PRIMARY KEY,
+                  skill_id TEXT NOT NULL REFERENCES skills(id),
+                  scan_id INTEGER NOT NULL REFERENCES scans(id),
+                  content_hash TEXT NOT NULL REFERENCES skill_contents(hash),
+                  UNIQUE(skill_id, scan_id)
+                )
+            """.trimIndent())
+            statement.executeQuery("SELECT id, skill_id, scan_id, description, content FROM skill_versions ORDER BY id").use { rows ->
+                connection.prepareStatement("INSERT INTO skill_versions_deduplicated(id, skill_id, scan_id, content_hash) VALUES(?, ?, ?, ?)").use { insert ->
+                    while (rows.next()) {
+                        val hash = storeContent(connection, rows.getString(5), rows.getString(4))
+                        insert.setLong(1, rows.getLong(1)); insert.setString(2, rows.getString(2))
+                        insert.setLong(3, rows.getLong(3)); insert.setString(4, hash); insert.executeUpdate()
+                    }
+                }
+            }
+            statement.execute("DROP TABLE skill_versions")
+            statement.execute("ALTER TABLE skill_versions_deduplicated RENAME TO skill_versions")
         }
     }
 }
@@ -182,7 +253,8 @@ internal data class StoredScan(
     val branch: String,
     val commit: String,
     val scannedAt: String,
-    val skillCount: Int
+    val skillCount: Int,
+    val locationCount: Int
 )
 
 private fun Connection.scalarLong(sql: String, vararg args: Any): Long =

@@ -22,7 +22,7 @@ class ScannerTest {
     @Test fun `formatted output has path link and description on separate lines`() {
         val commit = "a".repeat(40)
         val snapshot = Snapshot("main", commit, emptyList())
-        val finding = Finding("skl_123", "https://github.com/acme/agent-skills.git", "skills/release/SKILL.md", "Release guidance", commit)
+        val finding = Finding("skl_123", "https://github.com/acme/agent-skills.git", "skills/release/SKILL.md", "Release guidance", commit, contentHash("Release guidance"))
         assertEquals(
             "Found 1 skill on main at $commit:\n\n" +
                 "skills/release/SKILL.md  [skl_123]\n" +

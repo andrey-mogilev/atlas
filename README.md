@@ -25,8 +25,9 @@ folder may be written as a relative or absolute path (for example,
 Git branch-and-commit behavior. A local folder that is not a Git working tree
 is scanned directly, is labelled `local`, and uses `<NONE>` as its commit.
 
-Each skill is shown in three lines: its repository-relative path and ID, a
-link, and its description. The heading shows the branch and commit. A scan with
+Each unique skill is shown with its repository-relative path and ID, a link,
+and its description. Identical copies add an “Also found at” list with every
+other path, ID, and source link. The heading shows the branch and commit. A scan with
 no skills prints a short message. Errors go to standard error with a nonzero
 exit code.
 
@@ -61,6 +62,33 @@ or Git settings changed. Other hosts and explicit custom ports are not retried;
 branch, content, and validation failures do not trigger a fallback.
 
 See [.spec/readme.md](.spec/readme.md) for the command contract.
+
+## Duplicate skills
+
+Within a scan, identical `SKILL.md` contents are presented once, with the
+description shown once and all locations retained. Matching normalizes only
+Windows CRLF line endings to Unix LF; different instructions, whitespace,
+front matter, or trailing newlines remain distinct even if names/descriptions
+match. The smallest path in bytewise UTF-8 order represents each group; every
+location retains its own stable ID. Groups do not merge across scans or repositories.
+
+For example, three identical copies produce `Found 1 unique skill across 3
+locations`, with the other two copies listed below the representative. Scans
+without duplicates retain the previous three-line output. In the web UI, each
+group has one card and a locations list (expanded for up to four locations).
+Results and history show unique-skill and location counts separately.
+
+SQLite stores normalized contents and descriptions once, referenced by the
+individual location/version rows. Existing databases migrate automatically in
+one transaction when saving a scan or reading history; IDs, original scan times,
+and historical associations are preserved. A failed migration rolls back and
+reports a database error. The migration does not edit source repositories.
+Stop older running versions before upgrading: older binaries cannot read the
+new content-reference schema. For a rollback, keep a pre-upgrade database copy.
+
+The [atlas-test repository](https://github.com/andrey-mogilev/atlas-test) includes
+LF/CRLF duplicate copies and a same-description variant. Its default branch is
+expected to produce **4 unique skills across 7 locations**.
 
 ## Local web interface
 

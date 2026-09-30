@@ -23,6 +23,8 @@ class WebServerIT {
     @Test fun `packaged server serves assets scans relative folder and stops`() {
         Files.createDirectories(temp.resolve("source/skills/example"))
         Files.writeString(temp.resolve("source/skills/example/SKILL.md"), "# Example\n\nPackaged web scan.")
+        Files.createDirectories(temp.resolve("source/.agents/skills/example"))
+        Files.writeString(temp.resolve("source/.agents/skills/example/SKILL.md"), "# Example\r\n\r\nPackaged web scan.")
         val log = temp.resolve("server.log")
         val process = ProcessBuilder(java, "-jar", jar, "serve", "--port", "0")
             .directory(temp.toFile()).redirectErrorStream(true).redirectOutput(log.toFile())
@@ -60,7 +62,27 @@ class WebServerIT {
                 val job = Yaml().load<Map<String, Any>>(get("/api/jobs/$id", token).body())
                 if (job["status"] != "running") {
                     assertEquals("completed", job["status"], job.toString())
-                    assertTrue((job["result"] as Map<*, *>)["text"].toString().contains("Packaged web scan."))
+                    val result = job["result"] as Map<*, *>
+                    val findings = result["findings"] as List<*>
+                    assertEquals(1, findings.size)
+                    assertEquals(2, result["locationCount"])
+                    val locations = (findings.single() as Map<*, *>)["locations"] as List<*>
+                    assertEquals(2, locations.size)
+                    assertEquals(2, locations.map { (it as Map<*, *>)["id"] }.toSet().size)
+                    val cli = ProcessBuilder(java, "-jar", jar, "scan", "./source")
+                        .directory(temp.toFile()).redirectError(ProcessBuilder.Redirect.INHERIT)
+                        .apply { environment()["SKILL_SCAN_DB_PATH"] = temp.resolve("scan.db").toString() }.start()
+                    try {
+                        assertTrue(cli.waitFor(5, TimeUnit.SECONDS))
+                        assertEquals(0, cli.exitValue())
+                        assertEquals(result["text"].toString() + System.lineSeparator(), cli.inputStream.bufferedReader().readText())
+                    } finally { if (cli.isAlive) cli.destroyForcibly() }
+                    val history = Yaml().load<List<Map<String, Any>>>(get("/api/history", token).body()).single()
+                    assertEquals(1, history["skillCount"])
+                    assertEquals(2, history["locationCount"])
+                    assertEquals(result, Yaml().load<Map<String, Any>>(get("/api/history/${history["id"]}", token).body()))
+                    assertTrue(result["text"].toString().contains("Found 1 unique skill across 2 locations"))
+                    assertEquals(1, Regex("Description: Packaged web scan\\.").findAll(result["text"].toString()).count())
                     completed = true
                     break
                 }

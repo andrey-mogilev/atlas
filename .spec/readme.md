@@ -29,7 +29,7 @@ the branch and commit SHA at which the skills were found.
 - Locate `SKILL.md` files inside recognized skill directories in that commit.
 - Extract the skill description from each file.
 - Persist repository, scan, and skill-finding data locally.
-- Print a readable three-line block per discovered skill.
+- Print one description per unique skill with all discovered locations.
 - Report actionable failures with non-zero exit codes.
 
 ### Explicitly out of scope
@@ -76,10 +76,16 @@ is a branch-resolution failure (exit `4`).
 ### Success output
 
 Write a heading with the selected branch and full commit SHA, followed by a
-three-line block for every discovered `SKILL.md`, in deterministic path order
-(bytewise ascending repository-relative path). Separate blocks with a blank
+three-line block for every unique skill, in deterministic path order
+(bytewise ascending repository-relative path). Identical contents are grouped
+according to section 11. Separate blocks with a blank
 line. The first line contains the repository-relative path and stable skill ID;
 the next two contain the source link and description.
+Additional locations appear in an indented `Also found at:` list, each with its
+own path, stable ID, and link, without repeating the description. If copies were
+grouped, the heading reports `Found U unique skills across L locations on ...`
+(using singular `skill` for U=1). When there are no duplicates, the previous
+heading and three-line blocks remain unchanged.
 
 ```text
 Found 1 skill on main at 9f0a1b2c3d4e...:
@@ -206,22 +212,28 @@ skills
   updated_at         timestamp not null
   unique(repository_id, source_path)
 
+skill_contents
+  hash               text primary key            -- SHA-256 of CRLF-normalized UTF-8 content
+  description        text not null
+  content            text not null               -- CRLF normalized to LF
+
 skill_versions
   id                 integer primary key
   skill_id           text not null references skills(id)
   scan_id            integer not null references scans(id)
-  description        text not null
-  content            text not null
+  content_hash       text not null references skill_contents(hash)
   unique(skill_id, scan_id)
 ```
 
 Identity rules:
 
-- A logical skill is identified by canonical repository URL plus the relative
+- A skill location is identified by canonical repository URL plus the relative
   `SKILL.md` path.
 - Its `id` is generated once, when that logical skill is first observed, and is
   reused on later scans.
 - A `skill_versions` row records what was found at each distinct commit.
+- Identical normalized contents and their descriptions are stored once in
+  `skill_contents`, including when multiple locations/versions reference them.
 - Re-scanning an already recorded repository/commit is idempotent: it must not
   create duplicate logical skills, scans, or versions, but it still prints the
   same records for that commit.
@@ -249,8 +261,8 @@ Identity rules:
 2. Given `--branch release/2026.1`, `scan` uses that branch even when the
    repository's default branch differs; a missing branch exits `4` with no
    stdout or database changes.
-3. Given multiple `SKILL.md` files, stdout contains one three-line block per
-   file, ordered by repository-relative path.
+3. Given multiple `SKILL.md` files, stdout contains one description per unique
+   content group, ordered by the representative path, with all locations listed.
    A `SKILL.md` under `docs/` or `.claude/notes/` is not reported.
 4. The heading includes the full scanned SHA. Each block includes a stable ID,
    source path, link, and description (or `(none)`).
@@ -268,7 +280,7 @@ Identity rules:
 
 ## 9. First-release choices
 
-- The output is formatted text with three lines per skill.
+- The output is formatted text with three lines per unique skill, plus duplicate locations.
 - URLs are normalized within their transport form. HTTPS and SSH spellings are
   separate repository identities.
 - An unreadable or non-UTF-8 `SKILL.md` aborts the scan before persistence.
@@ -290,8 +302,9 @@ The application remains a Java 17+ shaded JAR, using the JDK HTTP server with
 bundled HTML, CSS, and JavaScript. There are no external browser resources or
 frontend build dependencies. CLI and HTTP adapters call the same `ScanService`,
 which validates targets, invokes `GitScanner`, and commits through
-`SkillDatabase`. The CLI's command, output, error codes, identity rules, and
-database schema remain compatible. Configuration is read from the server's
+`SkillDatabase`. Both adapters use the same grouping and formatting rules.
+Commands, error codes, and stable location identities are preserved; the storage
+schema is migrated as described in section 11. Configuration is read from the server's
 environment at startup; a browser cannot change it.
 
 ### Inputs, execution, and outputs
@@ -353,10 +366,12 @@ It is not an authentication system against other processes on the same machine.
 | `GET /` | Form, results, and history UI. |
 | `POST /api/scans` | URL-encoded `target` and optional `branch`; HTTP 202 with `{id,status:"running"}`. |
 | `GET /api/jobs/<id>` | `{id,status}`; completed jobs add `result`, failed jobs add `code` and `message`. |
-| `GET /api/history` | Up to 50 entries with `id`, `target`, `branch`, `commit`, `scannedAt`, and `skillCount`. |
+| `GET /api/history` | Up to 50 entries with `id`, `target`, `branch`, `commit`, `scannedAt`, unique `skillCount`, and `locationCount`. |
 | `GET /api/history/<id>` | Persisted result with `target`, `branch`, `commit`, `findings`, and formatted `text`. |
 
-Each finding contains `id`, `path`, `link`, and `description`. API responses use
+Each finding represents a group and contains representative `id`, `path`, `link`,
+one `description`, and `locations` (each with `id`, `path`, and `link`). Results
+also include `locationCount`; the number of findings is the unique count. API responses use
 JSON. Unsupported methods return 405 with `Allow`; unknown jobs/scans return
 404; access checks return 403; malformed/unknown form fields return 400;
 unsupported content types return 415. Request bodies are capped at 8 KiB (413).
@@ -383,3 +398,49 @@ nodes for repository-controlled content.
    or submit scans; repository descriptions cannot execute browser code.
 7. The form, results, and history remain usable at desktop and mobile widths,
    with labelled inputs, visible focus, and announced scan/error status.
+
+## 11. Duplicate skills and content storage
+
+Within one repository scan, group `SKILL.md` files by their full contents after
+replacing CRLF with LF. No other normalization applies: trailing newlines,
+spaces, front matter, and instruction differences remain significant. Names
+and descriptions alone must never merge distinct content. File/total-byte size
+limits still count every source file before grouping.
+
+Sort locations in bytewise UTF-8 path order. The first location represents a
+group; groups are ordered by their representative paths. There is no new stable
+group ID: the representative ID is that path's existing ID and can change when
+the set of locations changes. All member IDs remain attached to their original
+paths. When one copy changes at a later commit, it forms a separate group with
+the same location ID; previous scans retain their original grouping.
+
+The CLI prints one description per group and all location paths, IDs, and links.
+The web UI shows one card per group, with a locations list expanded by default
+for up to four locations and collapsed for larger groups. It reports, for
+example, `4 unique skills across 7 locations`, including in history. Source
+links for each location point to the exact scanned commit where supported.
+
+Storage uses SHA-256 of the normalized UTF-8 text as the `skill_contents` key.
+Normalized text and its description are stored once across the database;
+`skill_versions` retains a separate association for every skill location/scan.
+Hash reuse verifies actual content equality and fails persistence on a collision.
+Grouping remains scoped to the selected repository/scan, not globally to all
+references to a content row. Original CRLF encoding is not retained in storage;
+the complete textual content is otherwise preserved.
+
+On the first save or history read of a legacy database, migrate the old
+`skill_versions(description, content)` rows to content references in one SQLite
+transaction. Preserve repository/skill/scan/version IDs, timestamps, empty scans,
+and every historical association. Failure rolls back the entire migration and
+reports category 5. Repeated startup/read/save is idempotent. History reads may
+therefore perform a schema upgrade; a nonexistent database still remains absent
+on read. Stop older server/CLI binaries before upgrade. Downgrading requires a
+pre-upgrade database copy; older binaries cannot use the new schema.
+
+Acceptance tests cover LF/CRLF copies, same-description different instructions,
+unchanged repeated scans, a changed copy at a later Git commit, preserved IDs
+and links, history reload, successful and failed legacy migration, shared
+content storage, and identical packaged CLI/web formatted output. The
+`andrey-mogilev/atlas-test` default branch contains four unique contents across
+seven locations (groups of 3, 2, 1, and 1) plus excluded-file fixtures. Its own
+CI validates those counts and preserves an actual CRLF fixture.

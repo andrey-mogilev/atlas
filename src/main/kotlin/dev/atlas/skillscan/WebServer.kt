@@ -136,7 +136,7 @@ internal class WebServer(
                 requireMethod(exchange, "GET")
                 respond(exchange, 200, database.recentScans(50).map {
                     mapOf("id" to it.id, "target" to it.requestedTarget, "branch" to it.branch,
-                        "commit" to it.commit, "scannedAt" to it.scannedAt, "skillCount" to it.skillCount)
+                        "commit" to it.commit, "scannedAt" to it.scannedAt, "skillCount" to it.skillCount, "locationCount" to it.locationCount)
                 })
             }
             path.startsWith("/api/history/") -> {
@@ -200,7 +200,12 @@ private class WebFailure(val status: Int, message: String) : RuntimeException(me
 private fun ScanResult.webResult(): Map<String, Any?> = mapOf(
     "target" to requestedTarget, "branch" to snapshot.branch, "commit" to snapshot.commit,
     "text" to formatFindings(snapshot, findings),
-    "findings" to findings.map { mapOf("id" to it.id, "path" to it.path, "link" to it.sourceLink(), "description" to it.description) }
+    "locationCount" to findings.size,
+    "findings" to groupFindings(findings).map { group ->
+        val primary = group.representative
+        mapOf("id" to primary.id, "path" to primary.path, "link" to primary.sourceLink(), "description" to group.description,
+            "locations" to group.locations.map { mapOf("id" to it.id, "path" to it.path, "link" to it.sourceLink()) })
+    }
 )
 
 private fun htmlEscape(value: String): String = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")

@@ -18,27 +18,48 @@ function element(tag, className, text) {
   node.textContent = text;
   return node;
 }
+function counts(skills, locations) {
+  return `${skills} unique ${skills === 1 ? "skill" : "skills"} across ${locations} ${locations === 1 ? "location" : "locations"}`;
+}
+function sourceLink(location) {
+  // Local files and SSH/Git URLs remain text; only web URLs become links.
+  const link = element(/^https?:\/\//i.test(location.link) ? "a" : "div", "source-link", location.link);
+  if (link.tagName === "A") {
+    link.href = location.link;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
+  return link;
+}
 function showResult(result) {
   $("empty-state").hidden = true;
   $("results").hidden = false;
   $("result-target").textContent = result.target;
   $("result-branch").textContent = result.branch;
   $("result-commit").textContent = result.commit;
-  $("result-count").textContent = `${result.findings.length} ${result.findings.length === 1 ? "skill" : "skills"}`;
+  $("result-count").textContent = counts(result.findings.length, result.locationCount);
   $("findings").replaceChildren();
   if (!result.findings.length) $("findings").append(element("p", "no-findings", "No SKILL.md files found in this source."));
   for (const finding of result.findings) {
     const card = element("article", "finding", "");
-    card.append(element("div", "finding-path", finding.path), element("div", "finding-id", finding.id),
+    card.append(element("div", "finding-path", finding.path),
       element("p", "finding-description", finding.description.replace(/\s+/g, " ").trim() || "(none)"));
-    // Local files and SSH/Git URLs remain copyable text; only web URLs become links.
-    if (/^https?:\/\//i.test(finding.link)) {
-      const link = element("a", "source-link", finding.link);
-      link.href = finding.link;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      card.append(link);
-    } else card.append(element("div", "source-link", finding.link));
+    if (finding.locations.length === 1) {
+      card.append(element("div", "finding-id", finding.id), sourceLink(finding));
+    } else {
+      const locations = element("details", "locations", "");
+      locations.open = finding.locations.length <= 4;
+      locations.append(element("summary", "", `${finding.locations.length} locations`));
+      const list = element("ul", "location-list", "");
+      for (const location of finding.locations) {
+        const item = element("li", "", "");
+        item.append(element("div", "finding-path", location.path),
+          element("div", "finding-id", location.id), sourceLink(location));
+        list.append(item);
+      }
+      locations.append(list);
+      card.append(locations);
+    }
     $("findings").append(card);
   }
   currentText = result.text;
@@ -54,7 +75,7 @@ async function history() {
     for (const scan of scans) {
       const button = element("button", "history-item", "");
       button.type = "button";
-      button.append(element("strong", "", scan.target), element("span", "", `${scan.branch} · ${scan.skillCount} ${scan.skillCount === 1 ? "skill" : "skills"}`),
+      button.append(element("strong", "", scan.target), element("span", "", `${scan.branch} · ${counts(scan.skillCount, scan.locationCount)}`),
         element("span", "", new Date(scan.scannedAt).toLocaleString()));
       button.addEventListener("click", async () => {
         const version = ++displayVersion;

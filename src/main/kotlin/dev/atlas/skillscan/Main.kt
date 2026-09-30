@@ -8,7 +8,8 @@ import kotlin.system.exitProcess
 internal class ScanFailure(val exitCode: Int, message: String) : RuntimeException(message)
 
 internal data class SkillFile(val path: String, val content: String, val description: String)
-internal data class Finding(val id: String, val repositoryUrl: String, val path: String, val description: String, val commit: String)
+internal data class Finding(val id: String, val repositoryUrl: String, val path: String, val description: String, val commit: String,
+                            val contentHash: String)
 
 fun main(args: Array<String>) {
     exitProcess(runCommand(args))

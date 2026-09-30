@@ -165,7 +165,7 @@ private fun isSkillPath(path: String): Boolean = path.substringAfterLast('/') ==
         path.startsWith("$root/") && path.removePrefix("$root/").contains('/')
     }
 
-private fun compareUtf8(a: String, b: String): Int {
+internal fun compareUtf8(a: String, b: String): Int {
     val left = a.toByteArray(StandardCharsets.UTF_8)
     val right = b.toByteArray(StandardCharsets.UTF_8)
     for (i in 0 until minOf(left.size, right.size)) {

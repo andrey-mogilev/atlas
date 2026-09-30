@@ -4,12 +4,20 @@ import java.net.URI
 
 internal fun formatFindings(snapshot: Snapshot, findings: List<Finding>): String {
     if (findings.isEmpty()) return "No SKILL.md files found on ${snapshot.branch} at ${snapshot.commit}."
-    val count = findings.size
-    val heading = "Found $count ${if (count == 1) "skill" else "skills"} on ${snapshot.branch} at ${snapshot.commit}:"
-    return heading + "\n\n" + findings.joinToString("\n\n") { finding ->
+    val groups = groupFindings(findings)
+    val count = groups.size
+    val locations = if (count == findings.size) "" else " across ${findings.size} locations"
+    val unique = if (count == findings.size) "" else "unique "
+    val heading = "Found $count $unique${if (count == 1) "skill" else "skills"}$locations on ${snapshot.branch} at ${snapshot.commit}:"
+    return heading + "\n\n" + groups.joinToString("\n\n") { group ->
+        val finding = group.representative
+        val otherLocations = if (group.locations.size == 1) "" else "\n  Also found at:\n" +
+            group.locations.drop(1).joinToString("\n") {
+                "    ${it.path.safeLine()}  [${it.id}]\n      Link: ${it.sourceLink()}"
+            }
         "${finding.path.safeLine()}  [${finding.id}]\n" +
             "  Link: ${finding.sourceLink()}\n" +
-            "  Description: ${finding.description.replace(Regex("\\s+"), " ").trim().safeLine().ifEmpty { "(none)" }}"
+            "  Description: ${finding.description.replace(Regex("\\s+"), " ").trim().safeLine().ifEmpty { "(none)" }}" + otherLocations
     }
 }
 
