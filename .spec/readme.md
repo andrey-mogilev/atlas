@@ -24,7 +24,7 @@ the branch and commit SHA at which the skills were found.
 - Verify that the repository exists and is accessible to the current user.
 - Resolve the repository's default branch, or a requested branch override.
 - Read the selected branch's current head commit.
-- Locate every file named exactly `SKILL.md` in that commit, at any depth.
+- Locate `SKILL.md` files inside recognized skill directories in that commit.
 - Extract the skill description from each file.
 - Persist repository, scan, and skill-finding data locally.
 - Print a readable three-line block per discovered skill.
@@ -108,11 +108,15 @@ Diagnostic messages go to standard error only.
    default branch when one is needed, or the selected branch does not resolve to
    a commit, fail without writing a partial scan.
 4. Obtain the exact full SHA of that branch's head.
-5. Fetch only the metadata and blob/tree objects needed to inspect that commit
-   (a temporary bare/shallow clone or equivalent Git plumbing is acceptable).
-6. Enumerate files in the commit tree whose basename is exactly `SKILL.md`.
-   Ignore symlinks, submodule entries, directories, and case variants such as
-   `skill.md`.
+5. Fetch the selected commit shallowly, requesting tree and blob objects on
+   demand where the remote supports partial clone.
+6. Enumerate only the following repository-root skill directories and their
+   descendants: `skills/`, `.agents/skills/`, `.claude/skills/`,
+   `.codex/skills/`, `.cursor/skills/`, `.github/skills/`, and
+   `.opencode/skills/`. A skill must be in a named subdirectory under one of
+   these roots, with a file named exactly `SKILL.md`. Ignore every `SKILL.md`
+   outside these roots, files directly in a root, symlinks, submodule entries,
+   directories, and case variants such as `skill.md`.
 7. Read each matching regular file from the resolved commit, not from a mutable
    working tree.
 8. Extract its description according to section 5.
@@ -215,6 +219,7 @@ Identity rules:
    stdout or database changes.
 3. Given multiple `SKILL.md` files, stdout contains one three-line block per
    file, ordered by repository-relative path.
+   A `SKILL.md` under `docs/` or `.claude/notes/` is not reported.
 4. The heading includes the full scanned SHA. Each block includes a stable ID,
    source path, link, and description (or `(none)`).
 5. A second scan at the same head is idempotent and emits the same blocks.

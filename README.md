@@ -19,6 +19,11 @@ link, and its description. The heading shows the branch and commit. A scan with
 no skills prints a short message. Errors go to standard error with a nonzero
 exit code.
 
+Discovery is limited to named skill directories under `skills/`,
+`.agents/skills/`, `.claude/skills/`, `.codex/skills/`, `.cursor/skills/`,
+`.github/skills/`, and `.opencode/skills/` at the repository root. A
+`SKILL.md` elsewhere in the repository is ignored.
+
 The default database is in the OS application data directory. Set
 `SKILL_SCAN_DB_PATH` to use another SQLite file. File size limits default to
 1 MiB per skill and 10 MiB per scan; override them with

@@ -15,6 +15,16 @@ private data class GitResult(val code: Int, val output: ByteArray)
 private data class GitRead(val bytes: ByteArray, val tooLarge: Boolean)
 private data class TreeEntry(val objectId: String, val path: String)
 
+internal val SKILL_ROOTS = listOf(
+    "skills",
+    ".agents/skills",
+    ".claude/skills",
+    ".codex/skills",
+    ".cursor/skills",
+    ".github/skills",
+    ".opencode/skills"
+)
+
 internal class GitScanner(private val maxFileBytes: Long, private val maxTotalBytes: Long) {
     fun scan(url: String, branchOverride: String?): Snapshot {
         val branch = if (branchOverride == null) defaultBranch(url) else {
@@ -27,7 +37,7 @@ internal class GitScanner(private val maxFileBytes: Long, private val maxTotalBy
             git(listOf("init", "--bare", "--quiet", temp.toString()), maxOutput = 16_384).requireSuccess(1, "could not prepare temporary Git repository")
             git(listOf("-C", temp.toString(), "remote", "add", "origin", url), maxOutput = 16_384)
                 .requireSuccess(1, "could not prepare temporary Git remote")
-            git(listOf("-C", temp.toString(), "fetch", "--quiet", "--filter=blob:none", "--depth=1", "--no-tags", "origin",
+            git(listOf("-C", temp.toString(), "fetch", "--quiet", "--filter=tree:0", "--depth=1", "--no-tags", "origin",
                 "refs/heads/$branch"), maxOutput = 16_384).requireSuccess(3, "repository is inaccessible: ${canonicalUrl(url)}")
             val fetched = gitText(listOf("-C", temp.toString(), "rev-parse", "FETCH_HEAD^{commit}"), 4,
                 "selected branch does not resolve to a commit")
@@ -83,7 +93,7 @@ internal class GitScanner(private val maxFileBytes: Long, private val maxTotalBy
     }
 
     private fun listSkillEntries(temp: Path, commit: String): List<TreeEntry> {
-        val bytes = git(listOf("-C", temp.toString(), "ls-tree", "-r", "-z", "--full-tree", commit),
+        val bytes = git(listOf("-C", temp.toString(), "ls-tree", "-r", "-z", "--full-tree", commit, "--") + SKILL_ROOTS,
             maxOutput = 64L * 1024 * 1024).requireSuccess(1, "could not inspect repository tree").output
         val entries = mutableListOf<TreeEntry>()
         var start = 0
@@ -96,7 +106,7 @@ internal class GitScanner(private val maxFileBytes: Long, private val maxTotalBy
             val metadata = line.substring(0, tab).split(' ')
             val path = line.substring(tab + 1)
             if (metadata.size == 3 && metadata[0] in setOf("100644", "100755")) {
-                if (metadata[1] == "blob" && path.substringAfterLast('/') == "SKILL.md") {
+                if (metadata[1] == "blob" && isSkillPath(path)) {
                     entries += TreeEntry(metadata[2], path)
                 }
             }
@@ -105,6 +115,11 @@ internal class GitScanner(private val maxFileBytes: Long, private val maxTotalBy
         return entries.sortedWith { a, b -> compareUtf8(a.path, b.path) }
     }
 }
+
+private fun isSkillPath(path: String): Boolean = path.substringAfterLast('/') == "SKILL.md" &&
+    SKILL_ROOTS.any { root ->
+        path.startsWith("$root/") && path.removePrefix("$root/").contains('/')
+    }
 
 private fun compareUtf8(a: String, b: String): Int {
     val left = a.toByteArray(StandardCharsets.UTF_8)
