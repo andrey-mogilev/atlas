@@ -5,9 +5,9 @@
 ## Video demonstration
 
 <!--
-Attach or link to a short video that demonstrates the change.
-If the change has no demonstrable user-visible behavior, write
-"Not applicable" and explain why.
+For every visible web UI change, briefly state what the current recording
+demonstrates and attach or link the video. If the change has no demonstrable
+user-visible behavior, write "Not applicable" and explain why.
 -->
 
 ## Architecture changes

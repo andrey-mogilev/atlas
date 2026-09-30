@@ -1,0 +1,4 @@
+interface:
+  display_name: "Web UI demo"
+  short_description: "Record and attach a current web UI demonstration"
+  default_prompt: "Record a concise demonstration of the changed web UI and attach it to the pull request description."

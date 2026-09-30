@@ -6,6 +6,16 @@ readable summary of each skill.
 
 Requires Java 17 or newer, Maven, and Git.
 
+## UI change evidence
+
+Every change to visible web UI behavior must include a current video
+demonstration in the pull request description. After implementation and UI
+validation are complete, use the repository skill at
+`.agents/skills/web-ui-demo/SKILL.md` to record the final behavior immediately
+before opening the draft pull request. Replace the video if a later commit
+changes visible behavior; changes without visible UI impact should mark the PR
+template's `UI demonstration` section as not applicable.
+
 ## Verification
 
 Run `mvn verify` to build the shaded CLI, execute unit tests, and execute the
