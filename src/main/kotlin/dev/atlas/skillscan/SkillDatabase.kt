@@ -73,7 +73,7 @@ internal class SkillDatabase(private val path: Path) {
                 connection.prepareStatement(
                     """
                     SELECT scans.requested_url, repositories.canonical_url, scans.scanned_branch, scans.commit_sha,
-                           scans.scanned_at, COUNT(DISTINCT skill_versions.content_hash), scans.id, COUNT(skill_versions.id)
+                           scans.scanned_at, COUNT(DISTINCT skill_versions.content_hash), scans.id, COUNT(skill_versions.id), repositories.id
                     FROM scans
                     JOIN repositories ON repositories.id = scans.repository_id
                     LEFT JOIN skill_versions ON skill_versions.scan_id = scans.id
@@ -88,7 +88,8 @@ internal class SkillDatabase(private val path: Path) {
                             while (rows.next()) add(StoredScan(
                                 requestedTarget = rows.getString(1), canonicalTarget = rows.getString(2),
                                 branch = rows.getString(3), commit = rows.getString(4),
-                                scannedAt = rows.getString(5), skillCount = rows.getInt(6), id = rows.getLong(7), locationCount = rows.getInt(8)
+                                scannedAt = rows.getString(5), skillCount = rows.getInt(6), id = rows.getLong(7),
+                                locationCount = rows.getInt(8), repositoryId = rows.getLong(9)
                             ))
                         }
                     }
@@ -99,12 +100,62 @@ internal class SkillDatabase(private val path: Path) {
         }
     }
 
+    fun repositories(): List<StoredRepository> {
+        if (Files.notExists(path)) return emptyList()
+        return try {
+            DriverManager.getConnection("jdbc:sqlite:$path").use { connection ->
+                prepareHistory(connection)
+                repositoriesIn(connection)
+            }
+        } catch (_: SQLException) {
+            throw ScanFailure(5, "could not read repositories from database: $path")
+        }
+    }
+
+    /** Reads all requested latest scans in one SQLite snapshot. */
+    fun latestScans(repositoryIds: List<Long>): List<Pair<StoredRepository, ScanResult>>? {
+        if (repositoryIds.isEmpty()) return emptyList()
+        if (Files.notExists(path)) return emptyList()
+        try {
+            DriverManager.getConnection("jdbc:sqlite:$path").use { connection ->
+                prepareHistory(connection)
+                connection.autoCommit = false
+                try {
+                    val available = repositoriesIn(connection).associateBy { it.id }
+                    if (repositoryIds.any { it !in available }) {
+                        connection.rollback()
+                        return null
+                    }
+                    val results = repositoryIds.map { id ->
+                        val repository = available.getValue(id)
+                        repository to readScan(connection, repository.latestScanId)!!
+                    }
+                    connection.commit()
+                    return results
+                } catch (e: Exception) {
+                    connection.rollback()
+                    throw e
+                }
+            }
+        } catch (_: SQLException) {
+            throw ScanFailure(5, "could not read repositories from database: $path")
+        }
+    }
+
     fun readScan(id: Long): ScanResult? {
         if (Files.notExists(path)) return null
         try {
             DriverManager.getConnection("jdbc:sqlite:$path").use { connection ->
                 prepareHistory(connection)
-                connection.prepareStatement("""
+                return readScan(connection, id)
+            }
+        } catch (_: SQLException) {
+            throw ScanFailure(5, "could not read scan history from database: $path")
+        }
+    }
+
+    private fun readScan(connection: Connection, id: Long): ScanResult? {
+        connection.prepareStatement("""
                     SELECT requested_url, canonical_url, scanned_branch, commit_sha FROM scans
                     JOIN repositories ON repositories.id = repository_id WHERE scans.id = ?
                 """.trimIndent()).use { statement ->
@@ -131,11 +182,25 @@ internal class SkillDatabase(private val path: Path) {
                         return ScanResult(requested, canonical, snapshot, findings)
                     }
                 }
-            }
-        } catch (_: SQLException) {
-            throw ScanFailure(5, "could not read scan history from database: $path")
-        }
     }
+
+    private fun repositoriesIn(connection: Connection): List<StoredRepository> =
+        connection.prepareStatement("""
+            SELECT repositories.id, repositories.canonical_url, scans.id, scans.requested_url,
+                   scans.scanned_branch, scans.commit_sha, scans.scanned_at,
+                   COUNT(DISTINCT skill_versions.content_hash), COUNT(skill_versions.id)
+            FROM repositories
+            JOIN scans ON scans.id = (
+                SELECT latest.id FROM scans latest WHERE latest.repository_id = repositories.id
+                ORDER BY latest.scanned_at DESC, latest.id DESC LIMIT 1
+            )
+            LEFT JOIN skill_versions ON skill_versions.scan_id = scans.id
+            GROUP BY repositories.id, scans.id
+            ORDER BY scans.scanned_at DESC, repositories.canonical_url COLLATE BINARY
+        """.trimIndent()).use { statement -> statement.executeQuery().use { rows -> buildList {
+            while (rows.next()) add(StoredRepository(rows.getLong(1), rows.getString(2), rows.getLong(3), rows.getString(4),
+                rows.getString(5), rows.getString(6), rows.getString(7), rows.getInt(8), rows.getInt(9)))
+        } } }
 
     private fun prepareHistory(connection: Connection) {
         connection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
@@ -251,6 +316,19 @@ internal data class StoredScan(
     val id: Long,
     val requestedTarget: String,
     val canonicalTarget: String,
+    val branch: String,
+    val commit: String,
+    val scannedAt: String,
+    val skillCount: Int,
+    val locationCount: Int,
+    val repositoryId: Long
+)
+
+internal data class StoredRepository(
+    val id: Long,
+    val canonicalTarget: String,
+    val latestScanId: Long,
+    val requestedTarget: String,
     val branch: String,
     val commit: String,
     val scannedAt: String,

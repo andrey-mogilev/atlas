@@ -6,9 +6,9 @@ const {test, expect} = require("@playwright/test");
 const scenario = require("./ui-demo.scenario");
 
 const repositoryRoot = path.resolve(__dirname, "..");
-const demoSource = process.platform === "win32"
-  ? path.join(os.tmpdir(), "atlas-demo-skills")
-  : "/tmp/atlas-demo-skills";
+const demoRoot = path.join(os.tmpdir(), "atlas-multi-repository-demo");
+const demoSources = [path.join(demoRoot, "atlas-guides"), path.join(demoRoot, "team-playbooks")];
+const demoDatabase = path.join(os.tmpdir(), "atlas-playwright-demo.sqlite");
 
 function artifactPrefix() {
   let branch = "detached-head";
@@ -153,26 +153,44 @@ async function click(page, target) {
 }
 
 test(`records the ${scenario.name}`, async ({page, context}) => {
-  const demos = path.join(repositoryRoot, "demos");
+  const demos = "/Users/andrey.mogilev/Projects/Videos";
   const prefix = artifactPrefix();
   await fs.mkdir(demos, {recursive: true});
-  await fs.rm(demoSource, {recursive: true, force: true});
-  await fs.cp(path.join(__dirname, scenario.sourceFixture), demoSource, {recursive: true});
-  await page.goto("/");
+  await fs.rm(demoRoot, {recursive: true, force: true});
+  await fs.rm(demoDatabase, {force: true});
+  for (const source of demoSources) await fs.cp(path.join(__dirname, scenario.sourceFixture), source, {recursive: true});
+  await page.goto("/scans");
   await installRecordingStyles(context, page);
   await page.waitForTimeout(1_400);
 
-  let target = await focus(page, "#target", 650);
-  await click(page, target);
-  await target.item.pressSequentially(demoSource, {delay: 100});
-  await page.waitForTimeout(1_300);
-  await captureMoment(page, demos, prefix, "sourceEntered");
+  for (const source of demoSources) {
+    let target = await focus(page, "#target", 450);
+    await click(page, target);
+    await target.item.pressSequentially(source, {delay: 80});
+    await page.waitForTimeout(700);
+    target = await focus(page, "#scan-button", 550);
+    await click(page, target);
+    await expect(page.locator("#status")).toHaveText("Scan complete. Results saved on this computer.", {timeout: 60_000});
+    await page.locator("#target").fill("");
+  }
 
-  target = await focus(page, "#scan-button", 800);
+  let target = await focus(page, "#skills-nav", 700);
   await click(page, target);
-  await expect(page.locator("#results")).toBeVisible({timeout: 60_000});
-  await focus(page, "#results", 1_800);
-  await captureMoment(page, demos, prefix, "scanComplete");
+  await installRecordingStyles(context, page);
+  await expect(page.locator(".repository-row")).toHaveCount(2);
+  await expect(page.locator(".finding")).toHaveCount(6);
+  await focus(page, "#repository-selector", 1_500);
+  await captureMoment(page, demos, prefix, "repositoriesLoaded");
+
+  target = await focus(page, ".repository-row input", 700);
+  await click(page, target);
+  await expect(page.locator("#all-repositories")).not.toBeChecked();
+  await expect(page.locator(".finding")).toHaveCount(3);
+  await page.waitForTimeout(1_400);
+  await captureMoment(page, demos, prefix, "partialSelection");
+  await click(page, target);
+  await expect(page.locator(".finding")).toHaveCount(6);
+  await page.waitForTimeout(800);
 
   target = await focus(page, "#skill-filter", 650);
   await click(page, target);
@@ -187,6 +205,7 @@ test(`records the ${scenario.name}`, async ({page, context}) => {
   target = await focus(page, ".finding-select", 900);
   await click(page, target);
   await expect(page.locator("#similarity-panel")).toBeVisible();
+  await expect(page.locator(".similarity-repository", {hasText: "team-playbooks"}).first()).toBeVisible();
   await focus(page, "#similarity-panel", 2_200);
   await captureMoment(page, demos, prefix, "relatedOpened");
   await page.locator(".demo-focus").evaluateAll(nodes => {

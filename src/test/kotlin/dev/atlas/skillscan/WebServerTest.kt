@@ -12,6 +12,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
+import java.sql.DriverManager
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -48,6 +49,43 @@ class WebServerTest {
             restarted.start()
             val result = data(request(restarted, "/api/history/$scanId", token(restarted)))
             assertEquals(formatFindings(expected.snapshot, expected.findings), result["text"])
+        }
+    }
+
+    @Test fun `repository reads select one latest scan with provenance and timestamp tie breaking`() {
+        val db = database
+        val shared = SkillFile("skills/shared/SKILL.md", "# Shared\n\nCommon guidance.", "Common guidance.")
+        db.save("https://example.test/zeta.git", "zeta", "main", "111", listOf(shared))
+        db.save("https://example.test/zeta.git", "zeta", "next", "222",
+            listOf(SkillFile("skills/new/SKILL.md", "# New\n\nLatest guidance.", "Latest guidance.")))
+        db.save("https://example.test/alpha.git", "alpha", "main", "aaa", listOf(shared))
+        db.save("https://example.test/beta.git", "beta", "main", "bbb", listOf(shared))
+        DriverManager.getConnection("jdbc:sqlite:${temp.resolve("skills.db")}").use { connection ->
+            connection.createStatement().use { it.executeUpdate("UPDATE scans SET scanned_at = '2026-01-01T00:00:00Z'") }
+        }
+
+        val repositories = db.repositories()
+        assertEquals(listOf("https://example.test/alpha.git", "https://example.test/beta.git", "https://example.test/zeta.git"),
+            repositories.map { it.canonicalTarget })
+        assertEquals("222", db.latestScans(listOf(repositories[2].id))!!.single().second.snapshot.commit,
+            "the greater scan id must break a timestamp tie")
+
+        WebServer(0, service(db), db).use { server ->
+            server.start()
+            val token = token(server)
+            val summaries = Yaml().load<List<Map<String, Any?>>>(request(server, "/api/repositories", token).body())
+            assertEquals(listOf("alpha", "beta", "zeta"), summaries.map { it["label"] })
+            val ids = summaries.joinToString(",") { it["id"].toString() }
+            val combined = data(request(server, "/api/repository-results?ids=$ids", token))["repositories"] as List<*>
+            assertEquals(3, combined.size)
+            assertEquals(listOf("aaa", "bbb", "222"), combined.map { ((it as Map<*, *>)["result"] as Map<*, *>)["commit"] })
+            assertEquals(2, combined.take(2).sumOf { (((it as Map<*, *>)["result"] as Map<*, *>)["findings"] as List<*>).size },
+                "equal contents in two repositories must remain two attributed groups")
+            assertEquals(200, request(server, "/api/repository-results?ids=", token).statusCode())
+            assertEquals(400, request(server, "/api/repository-results", token).statusCode())
+            assertEquals(400, request(server, "/api/repository-results?ids=1,1", token).statusCode())
+            assertEquals(400, request(server, "/api/repository-results?ids=bad", token).statusCode())
+            assertEquals(404, request(server, "/api/repository-results?ids=999999", token).statusCode())
         }
     }
 
@@ -125,10 +163,15 @@ class WebServerTest {
             assertTrue(root.headers().firstValue("Content-Security-Policy").get().contains("frame-ancestors 'none'"))
             assertEquals("no-store", root.headers().firstValue("Cache-Control").get())
             assertTrue(root.body().contains("id=\"skill-filter\""))
+            assertTrue(root.body().contains("id=\"repository-selector\""))
+            assertTrue(root.body().contains("href=\"/scans\""))
+            assertEquals(200, request(server, "/scans").statusCode())
             val script = request(server, "/app.js")
             assertEquals(200, script.statusCode())
             assertTrue(script.body().contains("finding.name.toLocaleLowerCase()"))
             assertTrue(script.body().contains("finding.description.toLocaleLowerCase()"))
+            assertTrue(script.body().contains("all.indeterminate"))
+            assertTrue(script.body().contains("localStorage"))
             assertEquals(200, request(server, "/style.css").statusCode())
             Socket("127.0.0.1", URI(server.origin).port).use { socket ->
                 socket.soTimeout = 3000
