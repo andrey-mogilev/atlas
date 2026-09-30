@@ -16,6 +16,11 @@ before opening the draft pull request. Replace the video if a later commit
 changes visible behavior; changes without visible UI impact should mark the PR
 template's `UI demonstration` section as not applicable.
 
+The same skill can be invoked manually as `$web-ui-demo` to record or view a
+demo without creating or updating a pull request. All recordings are stored in
+`/Users/andrey.mogilev/Projects/Videos/` and remain local unless they are
+explicitly uploaded as pull request evidence.
+
 ## Verification
 
 Run `mvn verify` to build the shaded CLI, execute unit tests, and execute the

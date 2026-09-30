@@ -1,11 +1,14 @@
 ---
 name: web-ui-demo
-description: Record and attach a concise video demonstration whenever a change affects Atlas's web UI. Use after UI validation and immediately before opening or updating the change's pull request; do not use for changes with no visible web behavior.
+description: Record or play concise video demonstrations of Atlas's web UI. Use manually when the user asks to create or view a demo, and automatically after UI validation immediately before opening or updating a UI change's pull request; do not use for changes with no visible web behavior unless explicitly requested.
 ---
 
 # Web UI demo
 
-Produce evidence of the user-visible behavior introduced or changed by the current branch. The recording is part of completing every web UI change, including follow-up commits that alter what a reviewer would see.
+Record or show user-visible Atlas behavior. The skill supports two modes:
+
+- **Manual demo:** When explicitly invoked, record the requested scenario or locate and play an existing demo. A pull request is not required.
+- **UI-change evidence:** When completing a branch that changes visible UI behavior, record the final behavior immediately before the pull request and attach the current demo to its description. Repeat this after follow-up commits that alter what a reviewer would see.
 
 ## Prepare the scenario
 
@@ -20,11 +23,17 @@ Use the available browser automation or screen-recording facility. Prefer WebM o
 
 Review the complete video before continuing. Re-record it if text is unreadable, the changed behavior is ambiguous, the run contains sensitive or unrelated material, or the recording no longer matches the latest UI revision. A screenshot does not replace the video.
 
-Store the local capture outside the Git working tree or in an ignored temporary path. Do not commit the video unless the user or repository documentation explicitly requires versioned media.
+Store every completed capture in `/Users/andrey.mogilev/Projects/Videos/`. Create the directory if it does not exist. Use a descriptive, filesystem-safe filename containing the Atlas feature and recording date, preserve earlier recordings unless the user asks to replace or delete them, and report the absolute path. Do not commit the video unless the user explicitly requires versioned media.
+
+## View a demo
+
+When the user asks to see a demo, list or identify the relevant files in `/Users/andrey.mogilev/Projects/Videos/`. If the request is ambiguous, prefer the newest matching recording. Play or preview the selected local video in Codex and provide its absolute path. Do not require, create, or update a pull request for manual viewing.
 
 ## Add it to the pull request
 
-Record after the final UI-affecting change and just before creating the draft pull request. In the PR description, add a `## UI demonstration` section that states what the recording shows and embeds or links the uploaded video. Prefer uploading through GitHub's PR editor so the media remains accessible to reviewers; verify the rendered description opens or plays it.
+This section applies only when the demo is evidence for a UI-changing branch or the user explicitly asks to add a demo to a pull request. A manual invocation does not imply permission to create or modify a pull request.
+
+Record after the final UI-affecting change and just before creating the draft pull request. In the PR description, add a `## UI demonstration` section that states what the recording shows and embeds or links the uploaded video from `/Users/andrey.mogilev/Projects/Videos/`. Prefer uploading through GitHub's PR editor so the media remains accessible to reviewers; verify the rendered description opens or plays it.
 
 If a later commit changes visible behavior, create a replacement recording from the latest revision and update the same PR section. Remove obsolete links so the description presents one authoritative current demonstration.
 
