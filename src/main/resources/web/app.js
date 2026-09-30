@@ -2,6 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="atlas-token"]').content;
 let currentText = "";
+let currentResult = null;
 let activeJob = null;
 let displayVersion = 0;
 
@@ -31,18 +32,32 @@ function sourceLink(location) {
   }
   return link;
 }
-function showResult(result) {
-  $("empty-state").hidden = true;
-  $("results").hidden = false;
-  $("result-target").textContent = result.target;
-  $("result-branch").textContent = result.branch;
-  $("result-commit").textContent = result.commit;
-  $("result-count").textContent = counts(result.findings.length, result.locationCount);
+function matchesFilter(finding, query) {
+  const normalized = query.trim().toLocaleLowerCase();
+  return !normalized || finding.name.toLocaleLowerCase().includes(normalized) ||
+    finding.description.toLocaleLowerCase().includes(normalized);
+}
+function renderFindings() {
+  const findings = currentResult.findings;
+  const query = $("skill-filter").value;
+  const visible = findings.filter(finding => matchesFilter(finding, query));
+  const locations = visible.reduce((total, finding) => total + finding.locations.length, 0);
+  $("result-count").textContent = counts(visible.length, locations);
+  $("filter-summary").textContent = query.trim() && findings.length
+    ? `Showing ${visible.length} of ${findings.length} ${findings.length === 1 ? "skill" : "skills"}.`
+    : "";
   $("findings").replaceChildren();
-  if (!result.findings.length) $("findings").append(element("p", "no-findings", "No SKILL.md files found in this source."));
-  for (const finding of result.findings) {
+  if (!findings.length) {
+    $("findings").append(element("p", "no-findings", "No SKILL.md files found in this source."));
+    return;
+  }
+  if (!visible.length) {
+    $("findings").append(element("p", "no-findings", "No skills match this filter."));
+    return;
+  }
+  for (const finding of visible) {
     const card = element("article", "finding", "");
-    card.append(element("div", "finding-path", finding.path),
+    card.append(element("h3", "finding-name", finding.name), element("div", "finding-path", finding.path),
       element("p", "finding-description", finding.description.replace(/\s+/g, " ").trim() || "(none)"));
     if (finding.locations.length === 1) {
       card.append(element("div", "finding-id", finding.id), sourceLink(finding));
@@ -62,6 +77,16 @@ function showResult(result) {
     }
     $("findings").append(card);
   }
+}
+function showResult(result) {
+  $("empty-state").hidden = true;
+  $("results").hidden = false;
+  $("result-target").textContent = result.target;
+  $("result-branch").textContent = result.branch;
+  $("result-commit").textContent = result.commit;
+  currentResult = result;
+  $("skill-filter").value = "";
+  renderFindings();
   currentText = result.text;
   $("plain-output").textContent = currentText;
   $("copy-output").textContent = "Copy output";
@@ -150,6 +175,7 @@ $("copy-output").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(currentText); $("copy-output").textContent = "Copied"; }
   catch (_) { $("copy-output").textContent = "Select the output below to copy"; }
 });
+$("skill-filter").addEventListener("input", renderFindings);
 $("refresh-history").addEventListener("click", history);
 history();
 try { const saved = sessionStorage.getItem("atlas-job"); if (saved) trackJob(saved); } catch (_) { }

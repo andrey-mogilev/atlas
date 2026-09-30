@@ -390,9 +390,12 @@ environment at startup; a browser cannot change it.
 - The page polls a job until it completes or fails. Running status is
   indeterminate, not a fabricated percentage. A same-tab reload can resume
   polling using session storage; scanning still works when storage is disabled.
-- Successful results show branch, full commit, stable IDs, paths, source links,
-  and descriptions in the scanner's deterministic order. Missing descriptions
-  display `(none)`. Empty scans have an explicit successful empty state.
+- Successful results show branch, full commit, names, stable IDs, paths, source
+  links, and descriptions in the scanner's deterministic order. Missing
+  descriptions display `(none)`. Empty scans have an explicit successful empty
+  state. A client-side text filter matches a case-insensitive substring of the
+  skill name or description, updates visible skill and location counts, and
+  shows an explicit no-match state. It resets when a different result opens.
 - Expandable, copyable text uses the exact `scan --verbose` formatter. HTTP(S) source links
   are clickable; other source URLs are copyable text. Descriptions and source
   paths are rendered as text, never interpreted as HTML or skill instructions.
@@ -436,8 +439,8 @@ It is not an authentication system against other processes on the same machine.
 | `GET /api/history` | Up to 50 entries with `id`, `target`, `branch`, `commit`, `scannedAt`, unique `skillCount`, and `locationCount`. |
 | `GET /api/history/<id>` | Persisted result with `target`, `branch`, `commit`, `findings`, and formatted `text`. |
 
-Each finding represents a group and contains representative `id`, `path`, `link`,
-one `description`, and `locations` (each with `id`, `path`, and `link`). Results
+Each finding represents a group and contains representative `id`, `name`, `path`,
+`link`, one `description`, and `locations` (each with `id`, `path`, and `link`). Results
 also include `locationCount`; the number of findings is the unique count. API responses use
 JSON. Unsupported methods return 405 with `Allow`; unknown jobs/scans return
 404; access checks return 403; malformed/unknown form fields return 400;

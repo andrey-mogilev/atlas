@@ -135,8 +135,11 @@ the server needs the real local Git repository and the installed Git credentials
 Git scans read committed files; non-Git folders read their current files and
 require an empty branch field.
 
-The page shows the branch, full commit, paths, stable IDs, source links, and
-descriptions. “View CLI output” provides the same formatted text as `scan --verbose`, with
+The page shows the branch, full commit, skill names, paths, stable IDs, source links,
+and descriptions. Results can be filtered as you type by a case-insensitive
+name or description substring; the visible skill and location counts update to
+match. The filter resets when another scan or history entry is opened. “View CLI
+output” provides the same formatted text as `scan --verbose`, with
 a copy button. Non-web source URLs are displayed as text because browsers may
 block local file and SSH links. Scans run in the background, one at a time;
 another submission receives a busy message. Reloading the page in the same tab

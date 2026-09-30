@@ -203,7 +203,7 @@ private fun ScanResult.webResult(): Map<String, Any?> = mapOf(
     "locationCount" to findings.size,
     "findings" to groupFindings(findings).map { group ->
         val primary = group.representative
-        mapOf("id" to primary.id, "path" to primary.path, "link" to primary.sourceLink(), "description" to group.description,
+        mapOf("id" to primary.id, "name" to primary.name, "path" to primary.path, "link" to primary.sourceLink(), "description" to group.description,
             "locations" to group.locations.map { mapOf("id" to it.id, "path" to it.path, "link" to it.sourceLink()) })
     }
 )

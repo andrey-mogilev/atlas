@@ -32,6 +32,11 @@
           <div id="results" hidden>
             <p id="result-target" class="result-target"></p>
             <div class="metadata"><span id="result-branch"></span><code id="result-commit"></code></div>
+            <div class="filter-control">
+              <label for="skill-filter">Filter skills</label>
+              <input id="skill-filter" type="search" placeholder="Name or description" autocomplete="off" aria-describedby="filter-summary">
+              <p id="filter-summary" class="hint" role="status" aria-live="polite"></p>
+            </div>
             <div id="findings"></div>
             <details><summary>View CLI output</summary><button id="copy-output" class="secondary" type="button">Copy output</button><pre id="plain-output"></pre></details>
           </div>
