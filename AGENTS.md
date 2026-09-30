@@ -8,6 +8,24 @@ update the relevant specification or documentation in the same change. If no
 specification exists yet, add or expand the appropriate project documentation
 to record the intended behavior.
 
+## Project memory
+
+- Read `memory/README.md` and `memory/project.md` before making architectural
+  or behavioral changes. Consult `memory/current.md`, relevant decision
+  records, and task handoffs when they apply.
+- Update project memory when work reveals durable project knowledge, changes
+  an architectural decision, or leaves important follow-up context.
+- Record verified facts and decisions, not chat transcripts, transient command
+  output, or unsupported speculation. Never store credentials, secrets, or
+  personal data in project memory.
+- Keep specifications and normal project documentation authoritative. Memory
+  should link to those sources instead of duplicating their contracts.
+- Prefer a new, uniquely named file in `memory/decisions/` or
+  `memory/handoffs/` over concurrent edits to a shared file.
+- Follow the maintenance and retirement rules in `memory/README.md`. Remove or
+  rewrite stale material when repository evidence supersedes it, and preserve
+  uncertain information with an explicit review note rather than guessing.
+
 ## GitHub workflow
 
 - Prepare each change on a separate `codex/<change-name>` branch based on the
