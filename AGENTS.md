@@ -33,6 +33,12 @@ to record the intended behavior.
   explicitly grants an exception for that change.
 - Update the implementation and relevant specification/documentation, and run
   appropriate local validation before opening a pull request.
+- For every change that affects visible web UI behavior, use the repository's
+  `web-ui-demo` skill. After final UI validation and immediately before opening
+  the pull request, record the changed behavior and add the current video to a
+  `Video demonstration` section in the pull request description. Replace the
+  recording whenever a later commit changes visible behavior. Store recordings
+  locally in `/Users/andrey.mogilev/Projects/Videos/`.
 - Commit and push the change branch to GitHub, then open a draft pull request
   targeting `main`. CI currently runs on pull requests and pushes to `main`,
   so a draft pull request is needed to validate a change branch.
@@ -58,10 +64,12 @@ A change is done only when all of the following are true:
 1. The implementation and its relevant specification/documentation are
    updated.
 2. Appropriate local validation has been run.
-3. The change is committed and pushed to its separate GitHub branch.
-4. A pull request targeting `main` exists, and CI checks for its latest
+3. For a visible web UI change, the pull request description contains a
+   reviewed video demonstrating the current revision.
+4. The change is committed and pushed to its separate GitHub branch.
+5. A pull request targeting `main` exists, and CI checks for its latest
    revision have been reviewed and are passing.
-5. The pull request is ready for review and its link has been provided to the
+6. The pull request is ready for review and its link has been provided to the
    user. Merging is not part of completion unless explicitly requested.
 
 If the user explicitly waives the separate-branch/pull-request workflow for a
