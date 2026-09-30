@@ -18,8 +18,8 @@
           <div class="section-title"><h2 id="scan-heading">Scan a source</h2><span>01 / Discover</span></div>
           <form id="scan-form">
             <label for="target">Repository URL or local folder</label>
-            <input id="target" name="target" type="text" required maxlength="4096" placeholder="https://github.com/org/skills.git or /path/to/skills" autocomplete="off" spellcheck="false" aria-describedby="target-help">
-            <p id="target-help" class="hint">Git URLs and local folders are supported. Relative paths start from <code>__BASE_DIRECTORY__</code>.</p>
+            <input id="target" name="target" type="text" required maxlength="4096" placeholder="https://github.com/org/repo or /path/to/skills" autocomplete="off" spellcheck="false" aria-describedby="target-help">
+            <p id="target-help" class="hint">Paste a Git URL, Markdown repository link, or folder path. GitHub URLs work with or without .git. Relative paths start from <code>__BASE_DIRECTORY__</code>.</p>
             <div class="form-bottom"><div><label for="branch">Branch <span class="optional">optional</span></label><input id="branch" name="branch" type="text" maxlength="1024" placeholder="Default branch" autocomplete="off" spellcheck="false"></div><button id="scan-button" type="submit">Scan source <span aria-hidden="true">↗</span></button></div>
             <p class="hint">For Git repositories, scans read committed files at the selected branch head. Leave branch empty for non-Git folders.</p>
           </form>

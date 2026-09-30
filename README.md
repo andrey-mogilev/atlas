@@ -46,6 +46,20 @@ folder paths. It uses the installed Git client and its configured credentials
 for Git repositories. HTTPS and SSH URLs remain separate repository identities
 in the local database.
 
+GitHub repository URLs work with or without a `.git` suffix, for example
+`https://github.com/andrey-mogilev/atlas-test`. You can also paste a complete
+Markdown link such as `[Atlas test](https://github.com/andrey-mogilev/atlas-test)`
+into the web input (or pass it as one quoted CLI argument). The link resolves to
+the same repository identity as its URL.
+
+If a standard `https://github.com/owner/repository` URL is inaccessible over HTTPS,
+the scanner retries the same repository through `git@github.com:owner/repository.git`
+using your existing SSH configuration. This is useful for private repositories
+when SSH access is configured but HTTPS credentials are not. Source links and
+the database identity retain the supplied HTTPS URL. No credentials are stored
+or Git settings changed. Other hosts and explicit custom ports are not retried;
+branch, content, and validation failures do not trigger a fallback.
+
 See [.spec/readme.md](.spec/readme.md) for the command contract.
 
 ## Local web interface

@@ -39,7 +39,7 @@ internal class ScanService(private val database: SkillDatabase, private val maxF
     fun scan(requestedTarget: String, branch: String?): ScanResult {
         val target = scanTarget(requestedTarget)
         val scanner = GitScanner(maxFileBytes, maxTotalBytes)
-        val snapshot = if (target.localDirectory == null) scanner.scan(target.canonical, branch)
+        val snapshot = if (target.localDirectory == null) scanRemote(target.canonical, branch, scanner::scan)
         else scanner.scanLocalDirectory(target.localDirectory, branch)
         val findings = database.save(target.canonical, requestedTarget, snapshot.branch, snapshot.commit, snapshot.skills)
         return ScanResult(requestedTarget, target.canonical, snapshot, findings)
@@ -56,7 +56,12 @@ internal class ScanService(private val database: SkillDatabase, private val maxF
 
 internal data class ScanTarget(val canonical: String, val localDirectory: Path?)
 
-internal fun scanTarget(input: String): ScanTarget {
+internal fun scanTarget(requestedInput: String): ScanTarget {
+    // Accept a complete copied Markdown link, optionally wrapped in inline-code backticks.
+    // Local paths are left untouched, including valid spaces and punctuation in their names.
+    val copiedLink = requestedInput.trim().removeSurrounding("`")
+    val input = Regex("\\[[^\\]\\r\\n]*]\\((https?://[^\\s<>]+)\\)")
+        .matchEntire(copiedLink)?.groupValues?.get(1) ?: requestedInput
     if (input.isBlank() || input.startsWith('-') || input.contains('\u0000') || input.any { it == '\n' || it == '\r' }) {
         throw ScanFailure(2, "malformed repository URL or folder path")
     }
@@ -70,6 +75,26 @@ internal fun scanTarget(input: String): ScanTarget {
     }
     if (!Files.isDirectory(directory)) throw ScanFailure(3, "local folder is inaccessible: $directory")
     return ScanTarget(directory.toUri().toString().trimEnd('/'), directory)
+}
+
+/** Retry only the same GitHub repository with the user's existing SSH configuration. */
+internal fun scanRemote(url: String, branch: String?, operation: (String, String?) -> Snapshot): Snapshot {
+    try {
+        return operation(url, branch)
+    } catch (failure: ScanFailure) {
+        if (failure.exitCode != 3) throw failure
+        val uri = runCatching { URI(url) }.getOrNull() ?: throw failure
+        if (uri.scheme != "https" || uri.host != "github.com" || uri.port !in setOf(-1, 443) ||
+            !Regex("/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(uri.path.orEmpty())) throw failure
+        val sshUrl = "git@github.com:${uri.path.removePrefix("/").removeSuffix(".git")}.git"
+        try {
+            return operation(sshUrl, branch)
+        } catch (sshFailure: ScanFailure) {
+            if (sshFailure.exitCode == 3) throw ScanFailure(3,
+                "repository is inaccessible over HTTPS and SSH: $url; check your GitHub access and Git credentials")
+            throw ScanFailure(sshFailure.exitCode, sshFailure.message?.replace(sshUrl, url) ?: "repository scan failed: $url")
+        }
+    }
 }
 
 internal fun positiveLimit(name: String, default: Long, environment: Map<String, String>): Long {

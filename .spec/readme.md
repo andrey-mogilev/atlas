@@ -56,6 +56,12 @@ skill-atlas scan <repository-url-or-folder> [--branch <branch-name>]
 `<repository-url-or-folder>` may be a Git URL accepted by the installed Git
 client (for example `https://github.com/org/project.git` or
 `git@github.com:org/project.git`) or a relative/absolute local folder path.
+GitHub URLs do not require the `.git` suffix. A complete Markdown link
+`[label](https://host/owner/repository)`, optionally wrapped in a single pair of
+inline-code backticks and surrounding whitespace, is unwrapped before URL
+validation. Only HTTP(S) links use this convenience syntax; local folder paths
+are otherwise preserved exactly. The original input remains in `requested_url`,
+while the extracted URL supplies the canonical repository identity.
 For a local Git working tree, Git resolution behaves as it does for a `file://`
 repository URL. For a local folder that is not a Git working tree, the scanner
 reads the folder directly, reports branch `local` and commit `<NONE>`, and does
@@ -114,6 +120,8 @@ Diagnostic messages go to standard error only.
 3. If the remote cannot be contacted, cannot be read, does not advertise a
    default branch when one is needed, or the selected branch does not resolve to
    a commit, fail without writing a partial scan.
+   Exception: an inaccessible standard HTTPS GitHub repository may be retried
+   through the same repository's SSH transport as specified below.
 4. Obtain the exact full SHA of that branch's head.
 5. Fetch the selected commit shallowly, requesting tree and blob objects on
    demand where the remote supports partial clone.
@@ -137,6 +145,18 @@ commit `<NONE>`; repeated scans are therefore idempotent for unchanged paths.
 
 The scanner must never run hooks, shell scripts, package-install commands, or
 any other repository-provided executable content.
+
+For an HTTPS GitHub URL with exactly an owner and repository path and the default
+port (implicit or 443), an access failure (category 3) triggers one retry through
+`git@github.com:owner/repository.git`. Git uses the existing SSH keys, agent, and
+configuration; the scanner does not set up or store credentials or change Git
+configuration. The entire scan is retried with the same branch override. Other
+hosts, non-HTTPS inputs, custom ports, and URL paths containing extra segments
+are not eligible. Validation, branch-resolution, content, and persistence errors
+are not retried. If both transports are inaccessible, report category 3 with the
+original HTTPS URL and guidance to check repository access and Git credentials.
+Successful fallback keeps the original HTTPS canonical identity and source
+links; explicitly supplying the SSH URL still creates a separate identity.
 
 ## 5. `SKILL.md` description extraction
 
@@ -279,6 +299,8 @@ environment at startup; a browser cannot change it.
 - The form accepts a repository URL or typed local folder path and an optional
   branch. An empty branch field means no override. Relative folder paths resolve
   from the server's startup working directory, which the page displays.
+- Bare GitHub URLs without `.git` and complete copied Markdown repository links
+  use the same shared target resolution and HTTPS-to-SSH fallback as the CLI.
 - Uploads and browser folder pickers are not used: scanning needs filesystem
   paths and the user's existing Git credentials. Local Git repositories still
   scan committed files; plain folders still reject a branch override.
