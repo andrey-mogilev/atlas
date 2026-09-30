@@ -37,8 +37,9 @@ to record the intended behavior.
   `web-ui-demo` skill. After final UI validation and immediately before opening
   the pull request, record the changed behavior and add the current video to a
   `Video demonstration` section in the pull request description. Replace the
-  recording whenever a later commit changes visible behavior. Store recordings
-  locally in `/Users/andrey.mogilev/Projects/Videos/`.
+  recording whenever a later commit changes visible behavior. Generate demos
+  through the repository Playwright test and store them in the ignored
+  `demos/` directory.
 - Commit and push the change branch to GitHub, then open a draft pull request
   targeting `main`. CI currently runs on pull requests and pushes to `main`,
   so a draft pull request is needed to validate a change branch.
