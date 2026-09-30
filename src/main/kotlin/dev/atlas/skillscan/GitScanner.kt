@@ -5,7 +5,9 @@ import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -26,6 +28,14 @@ internal val SKILL_ROOTS = listOf(
 )
 
 internal class GitScanner(private val maxFileBytes: Long, private val maxTotalBytes: Long) {
+    fun scanLocalDirectory(directory: Path, branchOverride: String?): Snapshot {
+        val isGitWorkingTree = git(listOf("-C", directory.toString(), "rev-parse", "--is-inside-work-tree"), maxOutput = 4096)
+            .let { it.code == 0 && it.output.toString(StandardCharsets.UTF_8).trim() == "true" }
+        if (isGitWorkingTree) return scan(directory.toUri().toString(), branchOverride)
+        if (branchOverride != null) throw ScanFailure(2, "--branch requires a Git repository")
+        return LocalFolderScanner(maxFileBytes, maxTotalBytes).scan(directory)
+    }
+
     fun scan(url: String, branchOverride: String?): Snapshot {
         val branch = if (branchOverride == null) defaultBranch(url) else {
             validateBranch(branchOverride)
@@ -113,6 +123,40 @@ internal class GitScanner(private val maxFileBytes: Long, private val maxTotalBy
         }
         if (start != bytes.size) throw ScanFailure(1, "invalid repository tree output")
         return entries.sortedWith { a, b -> compareUtf8(a.path, b.path) }
+    }
+}
+
+private class LocalFolderScanner(private val maxFileBytes: Long, private val maxTotalBytes: Long) {
+    fun scan(directory: Path): Snapshot {
+        var totalBytes = 0L
+        val skills = mutableListOf<SkillFile>()
+        try {
+            for (root in SKILL_ROOTS) {
+                val rootPath = directory.resolve(root)
+                if (!Files.isDirectory(rootPath, NOFOLLOW_LINKS)) continue
+                Files.walk(rootPath).use { paths ->
+                    paths.filter { path ->
+                        val attributes = Files.readAttributes(path, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
+                        attributes.isRegularFile && isSkillPath(directory.relativize(path).toString().replace('\\', '/'))
+                    }.forEach { path ->
+                        val relativePath = directory.relativize(path).toString().replace('\\', '/')
+                        val size = Files.size(path)
+                        if (size > maxFileBytes || size > maxTotalBytes - totalBytes) {
+                            throw ScanFailure(1, "SKILL.md content exceeds configured size limit: $relativePath")
+                        }
+                        val bytes = Files.readAllBytes(path)
+                        totalBytes += bytes.size
+                        val content = decodeUtf8(bytes) ?: throw ScanFailure(1, "SKILL.md is not UTF-8: $relativePath")
+                        skills += SkillFile(relativePath, content, extractDescription(content))
+                    }
+                }
+            }
+        } catch (e: ScanFailure) {
+            throw e
+        } catch (_: Exception) {
+            throw ScanFailure(1, "could not read local folder: $directory")
+        }
+        return Snapshot("local", "<NONE>", skills.sortedWith { a, b -> compareUtf8(a.path, b.path) })
     }
 }
 

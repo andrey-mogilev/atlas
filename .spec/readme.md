@@ -2,14 +2,15 @@
 
 ## 1. Purpose
 
-Provide a command-line tool that inspects a remote Git repository, discovers AI
-skills declared by `SKILL.md` files at the head commit of its default branch or
-an explicitly requested branch, and persists the findings in a local database.
+Provide a command-line tool that inspects a Git repository or local folder,
+discovers AI skills declared by `SKILL.md` files, and persists the findings in a
+local database. Git repositories are scanned at the head commit of their
+default branch or an explicitly requested branch.
 
 The initial command is:
 
 ```text
-scan <repository-url> [--branch <branch-name>]
+scan <repository-url-or-folder> [--branch <branch-name>]
 ```
 
 For every discovered skill, the command shows its repository-relative path,
@@ -20,7 +21,8 @@ the branch and commit SHA at which the skills were found.
 
 ### Included in the first release
 
-- Accept a repository URL and an optional branch override.
+- Accept a repository URL or local relative/absolute folder path and an
+  optional branch override.
 - Verify that the repository exists and is accessible to the current user.
 - Resolve the repository's default branch, or a requested branch override.
 - Read the selected branch's current head commit.
@@ -48,11 +50,16 @@ the branch and commit SHA at which the skills were found.
 ### Synopsis
 
 ```text
-skill-atlas scan <repository-url> [--branch <branch-name>]
+skill-atlas scan <repository-url-or-folder> [--branch <branch-name>]
 ```
 
-`<repository-url>` must be a Git URL accepted by the installed Git client, for
-example `https://github.com/org/project.git` or `git@github.com:org/project.git`.
+`<repository-url-or-folder>` may be a Git URL accepted by the installed Git
+client (for example `https://github.com/org/project.git` or
+`git@github.com:org/project.git`) or a relative/absolute local folder path.
+For a local Git working tree, Git resolution behaves as it does for a `file://`
+repository URL. For a local folder that is not a Git working tree, the scanner
+reads the folder directly, reports branch `local` and commit `<NONE>`, and does
+not accept `--branch`.
 
 `--branch <branch-name>` is optional. When provided, the scanner uses that named
 remote branch instead of resolving the repository's default branch. It accepts
@@ -122,6 +129,11 @@ Diagnostic messages go to standard error only.
 8. Extract its description according to section 5.
 9. In one database transaction, store the completed scan and upsert all findings.
 10. Commit the transaction, then print records in path order.
+
+For a local non-Git folder, scan the same named skill directories directly from
+the filesystem, without following symlinks. The canonical repository identity
+is its normalized absolute `file://` URI. It is stored as branch `local` and
+commit `<NONE>`; repeated scans are therefore idempotent for unchanged paths.
 
 The scanner must never run hooks, shell scripts, package-install commands, or
 any other repository-provided executable content.
@@ -230,6 +242,9 @@ Identity rules:
 8. A repository with no `SKILL.md` files exits `0`, prints an empty-scan message,
    and stores a completed scan.
 9. No repository-controlled executable content is invoked.
+10. Given `scan ./plain-folder` where the folder is not a Git working tree,
+    matching skills are scanned from the folder and output reports `local` at
+    `<NONE>`.
 
 ## 9. First-release choices
 

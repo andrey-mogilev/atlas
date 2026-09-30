@@ -1,6 +1,7 @@
 package dev.atlas.skillscan
 
 import java.net.URI
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.system.exitProcess
 
@@ -16,18 +17,23 @@ fun main(args: Array<String>) {
 internal fun runCli(args: Array<String>): Int {
     try {
         if (args.size !in 2..4 || args[0] != "scan" || (args.size == 4 && args[2] != "--branch") || args.size == 3) {
-            throw ScanFailure(2, "usage: skill-atlas scan <repository-url> [--branch <branch-name>]")
+            throw ScanFailure(2, "usage: skill-atlas scan <repository-url-or-folder> [--branch <branch-name>]")
         }
-        val requestedUrl = args[1]
-        val canonicalUrl = canonicalUrl(requestedUrl)
+        val requestedTarget = args[1]
+        val target = scanTarget(requestedTarget)
         val branch = args.getOrNull(3)
         val maxFileBytes = positiveLimit("SKILL_SCAN_MAX_FILE_BYTES", 1_048_576)
         val maxTotalBytes = positiveLimit("SKILL_SCAN_MAX_TOTAL_BYTES", 10_485_760)
         val databasePath = databasePath()
 
-        val snapshot = GitScanner(maxFileBytes, maxTotalBytes).scan(requestedUrl, branch)
+        val scanner = GitScanner(maxFileBytes, maxTotalBytes)
+        val snapshot = if (target.localDirectory == null) {
+            scanner.scan(target.canonical, branch)
+        } else {
+            scanner.scanLocalDirectory(target.localDirectory, branch)
+        }
         val findings = SkillDatabase(databasePath).save(
-            canonicalUrl, canonicalUrl, snapshot.branch, snapshot.commit, snapshot.skills
+            target.canonical, requestedTarget, snapshot.branch, snapshot.commit, snapshot.skills
         )
         println(formatFindings(snapshot, findings))
         return 0
@@ -38,6 +44,24 @@ internal fun runCli(args: Array<String>): Int {
         System.err.println("error: unexpected failure: ${e.message ?: e.javaClass.simpleName}")
         return 1
     }
+}
+
+private data class ScanTarget(val canonical: String, val localDirectory: Path?)
+
+private fun scanTarget(input: String): ScanTarget {
+    if (input.isBlank() || input.startsWith('-') || input.contains('\u0000') || input.any { it == '\n' || it == '\r' }) {
+        throw ScanFailure(2, "malformed repository URL or folder path")
+    }
+    if (input.contains("://") || input.startsWith("file:") || Regex("^[^@/:\\s]+@[^/:\\s]+:[^\\s]+$").matches(input)) {
+        return ScanTarget(canonicalUrl(input), null)
+    }
+    val directory = try {
+        Path.of(input).toAbsolutePath().normalize()
+    } catch (_: Exception) {
+        throw ScanFailure(2, "malformed folder path")
+    }
+    if (!Files.isDirectory(directory)) throw ScanFailure(3, "local folder is inaccessible: $directory")
+    return ScanTarget(directory.toUri().toString().trimEnd('/'), directory)
 }
 
 private fun positiveLimit(name: String, default: Long): Long {

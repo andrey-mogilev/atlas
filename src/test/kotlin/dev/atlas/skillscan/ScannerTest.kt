@@ -98,6 +98,23 @@ class ScannerTest {
         assertTrue(Files.notExists(temp.resolve("scan.db")))
     }
 
+    @Test fun `scans a non Git local folder with no commit`() {
+        val folder = temp.resolve("plain-folder")
+        Files.createDirectories(folder.resolve("skills/example"))
+        Files.createDirectories(folder.resolve("docs"))
+        Files.writeString(folder.resolve("skills/example/SKILL.md"), "# Example\n\nLocal guidance.")
+        Files.writeString(folder.resolve("docs/SKILL.md"), "Ignored")
+
+        val snapshot = GitScanner(1_048_576, 10_485_760).scanLocalDirectory(folder, null)
+        assertEquals("local", snapshot.branch)
+        assertEquals("<NONE>", snapshot.commit)
+        assertEquals(listOf("skills/example/SKILL.md"), snapshot.skills.map { it.path })
+        assertEquals("Local guidance.", snapshot.skills.single().description)
+        assertEquals(2, assertThrows(ScanFailure::class.java) {
+            GitScanner(1_048_576, 10_485_760).scanLocalDirectory(folder, "main")
+        }.exitCode)
+    }
+
     private fun java.sql.ResultSet.getCount(): Int {
         assertTrue(next())
         return getInt(1)
