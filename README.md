@@ -19,7 +19,9 @@ template's `UI demonstration` section as not applicable.
 The same skill can be invoked manually as `$web-ui-demo` to record or view a
 demo without creating or updating a pull request. All recordings are stored in
 `/Users/andrey.mogilev/Projects/Videos/` and remain local unless they are
-explicitly uploaded as pull request evidence.
+explicitly uploaded as pull request evidence. Recordings use deliberate typing
+and transition pacing plus temporary focus borders or restrained magnification
+to direct the viewer to important controls and results.
 
 ## Verification
 

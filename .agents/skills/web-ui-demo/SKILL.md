@@ -19,7 +19,17 @@ Record or show user-visible Atlas behavior. The skill supports two modes:
 
 ## Record
 
-Use the available browser automation or screen-recording facility. Prefer WebM or MP4, a readable viewport, and a short recording that starts immediately before the interaction and ends after the result is visible. Keep normal pointer movement and pacing; omit setup, build output, and idle time.
+Use the available browser automation or screen-recording facility. Prefer WebM or MP4, a readable viewport, and a short recording that starts immediately before the interaction and ends after the result is visible. Omit setup, build output, and idle time.
+
+## Pacing and visual emphasis
+
+- Type visibly rather than filling a field instantly. Use roughly 80–120 ms between characters, with a short pause before typing and after the completed value can be read.
+- Move the pointer along an eased path instead of jumping directly to controls. Hover briefly before clicking, scroll smoothly, and wait for each transition or loading state to settle before the next action.
+- Hold important starting and result states for about 1–2 seconds. Prefer a slightly longer, understandable recording over a fast sequence that must be replayed.
+- Before an important interaction, add a recording-only focus treatment around the relevant control or result: a high-contrast 3–4 px border or outline, rounded corners, and a subtle translucent backdrop or glow. Keep it visible long enough to direct attention, then remove it or move it to the next target.
+- For dense or small content, use browser zoom between 110% and 125% or a stable magnified callout. Prefer a focus border when zoom would reflow the page, hide context, or cause distracting layout movement.
+- Do not edit product source solely to add recording highlights. Inject temporary presentation styles through the browser automation layer, and ensure they do not cover labels, values, validation messages, or pointer targets.
+- Use one emphasis effect at a time. Avoid flashing, repeated pulsing, abrupt zoom, or decorative motion that competes with the behavior being demonstrated.
 
 Review the complete video before continuing. Re-record it if text is unreadable, the changed behavior is ambiguous, the run contains sensitive or unrelated material, or the recording no longer matches the latest UI revision. A screenshot does not replace the video.
 
