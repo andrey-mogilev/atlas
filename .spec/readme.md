@@ -3,37 +3,38 @@
 ## 1. Purpose
 
 Provide a command-line tool that inspects a remote Git repository, discovers AI
-skills declared by `SKILL.md` files at the head commit of its main branch, and
-persists the findings in a local database.
+skills declared by `SKILL.md` files at the head commit of its default branch or
+an explicitly requested branch, and persists the findings in a local database.
 
 The initial command is:
 
 ```text
-scan <repository-url>
+scan <repository-url> [--branch <branch-name>]
 ```
 
-For every discovered skill, the command emits a stable local skill ID, the
-repository URL, a human-readable description, and the commit SHA at which the
-skill was found.
+For every discovered skill, the command shows its repository-relative path,
+stable local ID, source link, and human-readable description. The heading shows
+the branch and commit SHA at which the skills were found.
 
 ## 2. Scope
 
 ### Included in the first release
 
-- Accept a repository URL as the sole `scan` argument.
+- Accept a repository URL and an optional branch override.
 - Verify that the repository exists and is accessible to the current user.
-- Resolve the repository's main/default branch.
-- Read the branch's current head commit.
+- Resolve the repository's default branch, or a requested branch override.
+- Read the selected branch's current head commit.
 - Locate every file named exactly `SKILL.md` in that commit, at any depth.
 - Extract the skill description from each file.
 - Persist repository, scan, and skill-finding data locally.
-- Print one machine-readable record per discovered skill.
+- Print a readable three-line block per discovered skill.
 - Report actionable failures with non-zero exit codes.
 
 ### Explicitly out of scope
 
-- Scanning branches other than the main branch.
-- Scanning Git history beyond the main branch's current head.
+- Scanning multiple branches in one invocation or refs other than an explicitly
+  requested branch.
+- Scanning Git history beyond the selected branch's current head.
 - Executing repository code or skill instructions.
 - Editing the repository or pushing changes.
 - Authentication setup or credential storage beyond the Git client's existing
@@ -47,36 +48,43 @@ skill was found.
 ### Synopsis
 
 ```text
-skill-scan scan <repository-url>
+skill-atlas scan <repository-url> [--branch <branch-name>]
 ```
 
 `<repository-url>` must be a Git URL accepted by the installed Git client, for
 example `https://github.com/org/project.git` or `git@github.com:org/project.git`.
 
+`--branch <branch-name>` is optional. When provided, the scanner uses that named
+remote branch instead of resolving the repository's default branch. It accepts
+only a valid Git branch short name (for example, `release/2026.1`), not an
+arbitrary ref, tag, or commit SHA. A missing, inaccessible, or non-branch ref
+is a branch-resolution failure (exit `4`).
+
 ### Success output
 
-Write newline-delimited JSON (NDJSON) to standard output: exactly one object
-for every discovered `SKILL.md`, in deterministic path order (bytewise ascending
-repository-relative path).
+Write a heading with the selected branch and full commit SHA, followed by a
+three-line block for every discovered `SKILL.md`, in deterministic path order
+(bytewise ascending repository-relative path). Separate blocks with a blank
+line. The first line contains the repository-relative path and stable skill ID;
+the next two contain the source link and description.
 
-```json
-{"id":"skl_01J...","repository_url":"https://github.com/acme/agent-skills.git","path":"skills/release/SKILL.md","description":"Guidance for preparing release notes.","commit":"9f0a1b2c3d4e..."}
+```text
+Found 1 skill on main at 9f0a1b2c3d4e...:
+
+skills/release/SKILL.md  [skl_0123456789abcdef0123456789abcdef]
+  Link: https://github.com/acme/agent-skills/blob/9f0a1b2c3d4e.../skills/release/SKILL.md
+  Description: Guidance for preparing release notes.
 ```
 
-Field meanings:
+The link points to the exact scanned file on GitHub, GitLab, and Bitbucket.
+For other Git hosts and `file://` repositories, it points to the repository URL
+because no portable web file URL exists. An absent description is displayed as
+`(none)`; the stored description remains empty.
 
-| Field | Meaning |
-| --- | --- |
-| `id` | Stable, locally generated identifier for this logical skill. |
-| `repository_url` | Canonical repository URL resolved for storage and display. |
-| `path` | Path of the source `SKILL.md`, relative to repository root. |
-| `description` | Extracted skill description; may be an empty string when absent. |
-| `commit` | Full 40-hex Git commit SHA scanned. |
+An empty successful scan prints a `No SKILL.md files found` message and exits
+`0`.
 
-An empty successful scan prints no records and exits `0`.
-
-Diagnostic messages go to standard error only; they never contaminate NDJSON
-standard output.
+Diagnostic messages go to standard error only.
 
 ### Exit codes
 
@@ -85,19 +93,20 @@ standard output.
 | `0` | Scan completed, including the case where no skills exist. |
 | `2` | Invalid command-line arguments or malformed repository URL. |
 | `3` | Repository does not exist, is not a Git repository, or is inaccessible. |
-| `4` | A default branch or its head commit could not be resolved. |
+| `4` | The selected branch or its head commit could not be resolved. |
 | `5` | The repository could be read but scan data could not be persisted. |
 | `1` | Any other unexpected operational failure. |
 
 ## 4. Repository resolution and scanning behavior
 
 1. Validate the supplied URL before making a network request.
-2. Ask Git for the remote's advertised `HEAD` symbolic reference. Its target is
-   the main branch. This deliberately does not assume the branch is named
+2. If `--branch` was supplied, resolve that exact remote branch. Otherwise, ask
+   Git for the remote's advertised `HEAD` symbolic reference and use its target
+   as the branch. This deliberately does not assume the default branch is named
    `main` or `master`.
 3. If the remote cannot be contacted, cannot be read, does not advertise a
-   `HEAD`, or the target does not resolve to a commit, fail without writing a
-   partial scan.
+   default branch when one is needed, or the selected branch does not resolve to
+   a commit, fail without writing a partial scan.
 4. Obtain the exact full SHA of that branch's head.
 5. Fetch only the metadata and blob/tree objects needed to inspect that commit
    (a temporary bare/shallow clone or equivalent Git plumbing is acceptable).
@@ -148,13 +157,13 @@ scans
   id                 integer primary key
   repository_id      integer not null references repositories(id)
   requested_url      text not null
-  main_branch        text not null
+  scanned_branch     text not null
   commit_sha         text not null
   scanned_at         timestamp not null
-  unique(repository_id, commit_sha)
+  unique(repository_id, scanned_branch, commit_sha)
 
 skills
-  id                 text primary key            -- e.g. skl_<ULID>
+  id                 text primary key            -- skl_<UUIDv4 without hyphens>
   repository_id      integer not null references repositories(id)
   source_path        text not null
   created_at         timestamp not null
@@ -201,28 +210,29 @@ Identity rules:
 
 1. Given an accessible repository whose default branch is `trunk`, `scan` uses
    `trunk` rather than assuming `main`.
-2. Given multiple `SKILL.md` files, stdout contains one valid NDJSON object per
+2. Given `--branch release/2026.1`, `scan` uses that branch even when the
+   repository's default branch differs; a missing branch exits `4` with no
+   stdout or database changes.
+3. Given multiple `SKILL.md` files, stdout contains one three-line block per
    file, ordered by repository-relative path.
-3. Each output object includes a non-empty stable `id`, canonical URL, source
-   path, description (possibly empty), and the exact scanned SHA.
-4. A second scan at the same head is idempotent and emits the same records.
-5. After a new main-branch commit changes a skill, the same logical `id` is
+4. The heading includes the full scanned SHA. Each block includes a stable ID,
+   source path, link, and description (or `(none)`).
+5. A second scan at the same head is idempotent and emits the same blocks.
+6. After a new selected-branch commit changes a skill, the same logical `id` is
    emitted with the new commit and a new stored version.
-6. A missing/private/inaccessible repository exits `3`, prints no stdout, and
+7. A missing/private/inaccessible repository exits `3`, prints no stdout, and
    commits no database changes.
-7. A repository with no `SKILL.md` files exits `0`, prints no stdout, and stores
-   a completed scan.
-8. No repository-controlled executable content is invoked.
+8. A repository with no `SKILL.md` files exits `0`, prints an empty-scan message,
+   and stores a completed scan.
+9. No repository-controlled executable content is invoked.
 
-## 9. Decisions to confirm before implementation
+## 9. First-release choices
 
-- Is NDJSON the desired public output, or should the default instead be a
-  human-readable table with a `--json` flag?
-- Should both HTTPS and SSH spellings of the same repository be canonicalized to
-  one identity, and if so, what hosting providers are in scope?
-- Should a malformed/unreadable individual `SKILL.md` abort the full scan or be
-  reported as a per-file warning while storing the other skills?
-- What default and maximum size limits are appropriate for skill files?
-- Is the first release limited to public repositories, or must it support
-  private repositories via the user's preconfigured Git credentials?
-
+- The output is formatted text with three lines per skill.
+- URLs are normalized within their transport form. HTTPS and SSH spellings are
+  separate repository identities.
+- An unreadable or non-UTF-8 `SKILL.md` aborts the scan before persistence.
+  Malformed YAML front matter falls back to Markdown description extraction.
+- The default limits are 1 MiB per `SKILL.md` and 10 MiB total, configurable via
+  `SKILL_SCAN_MAX_FILE_BYTES` and `SKILL_SCAN_MAX_TOTAL_BYTES`.
+- Private repositories work through the user's existing Git credentials.
