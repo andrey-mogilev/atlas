@@ -1,11 +1,11 @@
 module.exports = {
-  name: "skill discovery walkthrough",
+  name: "multi-repository skill explorer walkthrough",
   sourceFixture: "fixtures/demo-source",
   filter: "release",
-  expectedFilterSummary: "Showing 2 of 3 skills.",
+  expectedFilterSummary: "Showing 4 of 6 skills.",
   screenshots: {
-    sourceEntered: "source",
-    scanComplete: "results",
+    repositoriesLoaded: "repositories",
+    partialSelection: "partial-selection",
     filterApplied: "filtered",
     relatedOpened: "related"
   }

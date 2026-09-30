@@ -98,7 +98,7 @@ internal class WebServer(
             throw WebFailure(403, "Reload the page to start a new session")
         }
         when {
-            path == "/" -> {
+            path == "/" || path == "/scans" -> {
                 requireMethod(exchange, "GET")
                 val html = resource("index.html").replace("__TOKEN__", token)
                     .replace("__BASE_DIRECTORY__", htmlEscape(Path.of("").toAbsolutePath().toString()))
@@ -135,7 +135,8 @@ internal class WebServer(
             path == "/api/history" -> {
                 requireMethod(exchange, "GET")
                 respond(exchange, 200, database.recentScans(50).map {
-                    mapOf("id" to it.id, "target" to it.requestedTarget, "branch" to it.branch,
+                    mapOf("id" to it.id, "repositoryId" to it.repositoryId, "canonicalUrl" to it.canonicalTarget,
+                        "target" to it.requestedTarget, "branch" to it.branch,
                         "commit" to it.commit, "scannedAt" to it.scannedAt, "skillCount" to it.skillCount, "locationCount" to it.locationCount)
                 })
             }
@@ -144,6 +145,24 @@ internal class WebServer(
                 val id = path.removePrefix("/api/history/").toLongOrNull() ?: throw WebFailure(404, "Scan not found")
                 val result = database.readScan(id) ?: throw WebFailure(404, "Scan not found")
                 respond(exchange, 200, result.webResult())
+            }
+            path == "/api/repositories" -> {
+                requireMethod(exchange, "GET")
+                respond(exchange, 200, database.repositories().map { it.webSummary() })
+            }
+            path == "/api/repository-results" -> {
+                requireMethod(exchange, "GET")
+                val values = parseQuery(exchange.requestURI.rawQuery)
+                if (values.keys != setOf("ids")) throw WebFailure(400, "Expected one repository selection")
+                val raw = values.getValue("ids")
+                val ids = if (raw.isEmpty()) emptyList() else raw.split(',').map {
+                    it.toLongOrNull()?.takeIf { id -> id > 0 } ?: throw WebFailure(400, "Invalid repository selection")
+                }
+                if (ids.size > 100 || ids.distinct().size != ids.size) throw WebFailure(400, "Invalid repository selection")
+                val results = database.latestScans(ids) ?: throw WebFailure(404, "Repository not found")
+                respond(exchange, 200, mapOf("repositories" to results.map { (repository, result) ->
+                    repository.webSummary() + mapOf("result" to result.webResult())
+                }))
             }
             else -> throw WebFailure(404, "Page not found")
         }
@@ -194,6 +213,32 @@ internal class WebServer(
 
     private fun resource(name: String): String = javaClass.getResourceAsStream("/web/$name")!!.bufferedReader(UTF_8).use { it.readText() }
 }
+
+private fun parseQuery(query: String?): Map<String, String> {
+    if (query == null) return emptyMap()
+    return try {
+        buildMap {
+            query.split('&').forEach {
+                val key = URLDecoder.decode(it.substringBefore('='), UTF_8)
+                val value = URLDecoder.decode(it.substringAfter('=', ""), UTF_8)
+                if (key.isEmpty() || containsKey(key)) throw IllegalArgumentException()
+                put(key, value)
+            }
+        }
+    } catch (_: IllegalArgumentException) { throw WebFailure(400, "Invalid query") }
+}
+
+private fun repositoryLabel(repository: StoredRepository): String {
+    val canonical = repository.canonicalTarget.trimEnd('/')
+    val candidate = canonical.substringAfterLast('/').removeSuffix(".git")
+    return candidate.ifEmpty { repository.canonicalTarget }
+}
+
+private fun StoredRepository.webSummary(): Map<String, Any?> = mapOf(
+    "id" to id, "canonicalUrl" to canonicalTarget, "label" to repositoryLabel(this),
+    "latestScanId" to latestScanId, "target" to requestedTarget, "branch" to branch, "commit" to commit,
+    "scannedAt" to scannedAt, "skillCount" to skillCount, "locationCount" to locationCount
+)
 
 private class WebFailure(val status: Int, message: String) : RuntimeException(message)
 

@@ -1,9 +1,10 @@
 # Skill repository scanner — specification
 
-The planned repository-oriented web explorer is specified separately in
-[`multi-repository-web.md`](multi-repository-web.md). Until that feature is
-implemented, the single-result web contract in this document remains
-authoritative for current behavior.
+The repository-oriented web explorer is specified in
+[`multi-repository-web.md`](multi-repository-web.md). Its web-page and HTTP read
+contracts supersede the single-result web details retained in section 10 below;
+the CLI, persistence, scanning, security, and formatting contracts here remain
+authoritative.
 
 ## 1. Purpose
 
@@ -395,17 +396,15 @@ environment at startup; a browser cannot change it.
 - The page polls a job until it completes or fails. Running status is
   indeterminate, not a fabricated percentage. A same-tab reload can resume
   polling using session storage; scanning still works when storage is disabled.
-- Successful results show branch, full commit, stable IDs, paths, source links,
-  names, and descriptions in the scanner's deterministic order. Missing
-  descriptions display `(none)`. Empty scans have an explicit successful empty
-  state. Selecting a skill opens a separate related-skills panel containing all
-  other unique content groups in descending similarity order. Each entry shows
-  its rounded 0–100% score and can become the new selected skill.
+- Skills combines the latest persisted scan of each enabled repository and
+  preserves repository provenance on every card. Missing descriptions display
+  `(none)`. Empty, none-selected, and no-match states are explicit. Selecting a
+  skill opens a related-skills panel over the complete enabled corpus.
 - A client-side text filter matches a case-insensitive substring of the skill
   name or description, updates visible skill and location counts, and shows an
   explicit no-match state. It resets when a different result opens; changing
   the filter closes an open related-skills panel.
-- Similarity is computed locally in the browser over the current result. Text is
+- Similarity is computed locally in the browser over the enabled corpus. Text is
   Unicode NFKC-normalized and case-folded, then split into letter/number tokens;
   one-character tokens and a fixed set of common English filler words are
   omitted. A skill name is included twice and its description once. Smoothed
@@ -414,7 +413,7 @@ environment at startup; a browser cannot change it.
   the nearest whole percent. Ties retain deterministic representative-path
   order. The score is lexical relevance, not semantic equivalence, and requires
   no external service or source-content exposure.
-- Expandable, copyable text uses the exact `scan --verbose` formatter. HTTP(S) source links
+- Scan detail has expandable, copyable text using the exact `scan --verbose` formatter. HTTP(S) source links
   are clickable; other source URLs are copyable text. Descriptions and source
   paths are rendered as text, never interpreted as HTML or skill instructions.
 - Failed jobs carry the same numeric error categories as the CLI (1–5) and a
@@ -426,8 +425,9 @@ environment at startup; a browser cannot change it.
 
 ### Saved scan history
 
-History shows the newest 50 distinct saved scans by original scan time and ID,
-including CLI-created entries. Selecting an entry loads its persisted findings
+History shows the newest 50 distinct saved scans grouped by repository,
+including CLI-created entries. The latest scan is shown first and older scans
+are initially collapsed. Selecting an entry loads its persisted findings
 and formatted output without scanning again. Stable skill IDs allow findings
 at different commits to be compared. Full raw skill contents are not exposed.
 Reads of a missing database return empty history and do not create a database.
@@ -451,10 +451,13 @@ It is not an authentication system against other processes on the same machine.
 
 | Route | Contract |
 | --- | --- |
-| `GET /` | Form, results, and history UI. |
+| `GET /` | Multi-repository Skills page. |
+| `GET /scans` | Scan form and repository-grouped saved scan history. |
 | `POST /api/scans` | URL-encoded `target` and optional `branch`; HTTP 202 with `{id,status:"running"}`. |
 | `GET /api/jobs/<id>` | `{id,status}`; completed jobs add `result`, failed jobs add `code` and `message`. |
-| `GET /api/history` | Up to 50 entries with `id`, `target`, `branch`, `commit`, `scannedAt`, unique `skillCount`, and `locationCount`. |
+| `GET /api/repositories` | Repositories with canonical identity and latest-scan summary. |
+| `GET /api/repository-results?ids=<comma-separated-ids>` | Latest persisted result for each requested repository. Empty selection is valid; malformed, duplicate, or more than 100 IDs return 400. |
+| `GET /api/history` | Up to 50 entries with repository identity, `id`, `target`, `branch`, `commit`, `scannedAt`, unique `skillCount`, and `locationCount`. |
 | `GET /api/history/<id>` | Persisted result with `target`, `branch`, `commit`, `findings`, and formatted `text`. |
 
 Each finding represents a group and contains representative `id`, `name`, `path`,

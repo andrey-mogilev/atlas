@@ -7,6 +7,8 @@ documentation.
 ## Authoritative sources
 
 - The command and behavior contract is maintained in `.spec/readme.md`.
+- The repository-oriented web explorer and HTTP read model are maintained in
+  `.spec/multi-repository-web.md`.
 - User-facing setup and operating guidance is maintained in `README.md`.
 - Build and verification use Maven; the standard full validation command is
   `mvn verify`.
