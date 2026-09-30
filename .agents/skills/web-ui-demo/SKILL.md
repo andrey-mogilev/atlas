@@ -19,7 +19,9 @@ Record or show user-visible Atlas behavior. The skill supports two modes:
 
 ## Record
 
-Use the available browser automation or screen-recording facility. Prefer WebM or MP4, a readable viewport, and a short recording that starts immediately before the interaction and ends after the result is visible. Omit setup, build output, and idle time.
+Describe the walkthrough in `tests/ui-demo.scenario.js`, including its input, filter, and key screenshot moments. Implement or update its interactions in `tests/ui-demo.spec.js`, then run `npm run demo:ui`. Do not use a separate screen-capture workflow. The Playwright test owns the viewport, video and screenshot capture, recording-only focus styles, visible cursor, click ripples, pacing, and assertions.
+
+Run `npm install` when dependencies are absent. Run `npm run demo:install` when Playwright reports that Chromium or FFmpeg is missing.
 
 ## Pacing and visual emphasis
 
@@ -33,17 +35,17 @@ Use the available browser automation or screen-recording facility. Prefer WebM o
 
 Review the complete video before continuing. Re-record it if text is unreadable, the changed behavior is ambiguous, the run contains sensitive or unrelated material, or the recording no longer matches the latest UI revision. A screenshot does not replace the video.
 
-Store every completed capture in `/Users/andrey.mogilev/Projects/Videos/`. Create the directory if it does not exist. Use a descriptive, filesystem-safe filename containing the Atlas feature and recording date, preserve earlier recordings unless the user asks to replace or delete them, and report the absolute path. Do not commit the video unless the user explicitly requires versioned media.
+The test stores all captures together in the repository's ignored `demos/` directory. It uses the shared prefix `<mangled-branch>-YYYY-MM-DD`: lowercase the current branch, replace each run of non-alphanumeric characters with `-`, and trim leading or trailing separators. The video is `<prefix>.webm`; key moments declared by the scenario are `<prefix>-<moment>.png`. A rerun on the same branch and UTC date replaces that branch-day set; captures from other branches or dates remain intact. Report the absolute paths. Do not commit demo artifacts.
 
 ## View a demo
 
-When the user asks to see a demo, list or identify the relevant files in `/Users/andrey.mogilev/Projects/Videos/`. If the request is ambiguous, prefer the newest matching recording. Play or preview the selected local video in Codex and provide its absolute path. Do not require, create, or update a pull request for manual viewing.
+When the user asks to see a demo, list or identify the relevant files in `demos/`. If the request is ambiguous, prefer the newest matching recording. Play or preview the selected local video and its key screenshots in Codex, and provide their absolute paths. Do not require, create, or update a pull request for manual viewing.
 
 ## Add it to the pull request
 
 This section applies only when the demo is evidence for a UI-changing branch or the user explicitly asks to add a demo to a pull request. A manual invocation does not imply permission to create or modify a pull request.
 
-Record after the final UI-affecting change and just before creating the draft pull request. In the PR description, complete the `## Video demonstration` section by stating what the recording shows and embedding or linking the uploaded video from `/Users/andrey.mogilev/Projects/Videos/`. Prefer uploading through GitHub's PR editor so the media remains accessible to reviewers; verify the rendered description opens or plays it.
+Record after the final UI-affecting change and just before creating the draft pull request. In the PR description, complete the `## Video demonstration` section by stating what the recording shows and embedding or linking the branch-day video from `demos/`. Add key screenshots when they help reviewers navigate the scenario. Prefer uploading through GitHub's PR editor so the media remains accessible to reviewers; verify the rendered description opens or plays it.
 
 If a later commit changes visible behavior, create a replacement recording from the latest revision and update the same PR section. Remove obsolete links so the description presents one authoritative current demonstration.
 

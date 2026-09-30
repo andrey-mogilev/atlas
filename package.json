@@ -1,0 +1,11 @@
+{
+  "name": "skill-atlas-ui-demos",
+  "private": true,
+  "scripts": {
+    "demo:install": "playwright install ffmpeg",
+    "demo:ui": "playwright test tests/ui-demo.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.1"
+  }
+}
