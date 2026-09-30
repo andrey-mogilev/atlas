@@ -5,6 +5,11 @@ let currentText = "";
 let currentResult = null;
 let activeJob = null;
 let displayVersion = 0;
+let similarityModel = null;
+
+const STOP_WORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "use", "with", "you", "your"
+]);
 
 async function api(path, options = {}) {
   const response = await fetch(path, {...options, headers: {...options.headers, "X-Atlas-Token": token}});
@@ -37,11 +42,89 @@ function matchesFilter(finding, query) {
   return !normalized || finding.name.toLocaleLowerCase().includes(normalized) ||
     finding.description.toLocaleLowerCase().includes(normalized);
 }
+function tokens(finding) {
+  // Repeat name terms so concise identity words carry more weight than description prose.
+  const text = `${finding.name} ${finding.name} ${finding.description}`
+    .replace(/([\p{Ll}\p{N}])([\p{Lu}])/gu, "$1 $2").normalize("NFKC").toLowerCase();
+  return (text.match(/[\p{L}\p{N}]+/gu) || []).filter(token => token.length > 1 && !STOP_WORDS.has(token));
+}
+function buildSimilarityModel(findings) {
+  const counts = findings.map(finding => {
+    const result = new Map();
+    for (const token of tokens(finding)) result.set(token, (result.get(token) || 0) + 1);
+    return result;
+  });
+  const documentFrequency = new Map();
+  for (const terms of counts) for (const term of terms.keys()) {
+    documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1);
+  }
+  const vectors = counts.map(terms => {
+    const vector = new Map();
+    let squaredLength = 0;
+    for (const [term, count] of terms) {
+      const inverseFrequency = Math.log((findings.length + 1) / ((documentFrequency.get(term) || 0) + 1)) + 1;
+      const weight = (1 + Math.log(count)) * inverseFrequency;
+      vector.set(term, weight);
+      squaredLength += weight * weight;
+    }
+    const length = Math.sqrt(squaredLength);
+    if (length) for (const [term, weight] of vector) vector.set(term, weight / length);
+    return vector;
+  });
+  return {findings, vectors};
+}
+function similarity(left, right) {
+  const smaller = left.size <= right.size ? left : right;
+  const larger = smaller === left ? right : left;
+  let score = 0;
+  for (const [term, weight] of smaller) score += weight * (larger.get(term) || 0);
+  return Math.round(Math.min(1, Math.max(0, score)) * 100);
+}
+function selectFinding(selectedIndex) {
+  const selected = similarityModel.findings[selectedIndex];
+  if (!matchesFilter(selected, $("skill-filter").value)) {
+    $("skill-filter").value = "";
+    renderFindings();
+  }
+  const matches = similarityModel.findings.map((finding, index) => ({
+    finding, index, percent: similarity(similarityModel.vectors[selectedIndex], similarityModel.vectors[index])
+  })).filter(match => match.index !== selectedIndex).sort((left, right) =>
+    right.percent - left.percent || (left.finding.path < right.finding.path ? -1 : left.finding.path > right.finding.path ? 1 : 0));
+  document.querySelectorAll(".finding-select").forEach(button => {
+    button.setAttribute("aria-pressed", String(Number(button.dataset.findingIndex) === selectedIndex));
+  });
+  $("similarity-name").textContent = selected.name;
+  $("similarities").replaceChildren();
+  if (!matches.length) {
+    const item = element("li", "similarity-empty", "There are no other skills in this scan.");
+    $("similarities").append(item);
+  }
+  for (const match of matches) {
+    const item = element("li", "similarity-item", "");
+    const button = element("button", "similarity-choice", "");
+    button.type = "button";
+    button.append(element("span", "similarity-skill-name", match.finding.name),
+      element("span", "similarity-path", match.finding.path));
+    button.addEventListener("click", () => selectFinding(match.index));
+    const score = element("span", "similarity-score", `${match.percent}%`);
+    score.setAttribute("aria-label", `${match.percent} percent similar`);
+    item.append(button, score);
+    $("similarities").append(item);
+  }
+  $("similarity-panel").hidden = false;
+  $("result-explorer").classList.add("similarity-open");
+}
+function closeSimilarity() {
+  $("similarity-panel").hidden = true;
+  $("result-explorer").classList.remove("similarity-open");
+  document.querySelectorAll(".finding-select").forEach(button => button.setAttribute("aria-pressed", "false"));
+}
 function renderFindings() {
   const findings = currentResult.findings;
   const query = $("skill-filter").value;
-  const visible = findings.filter(finding => matchesFilter(finding, query));
-  const locations = visible.reduce((total, finding) => total + finding.locations.length, 0);
+  const visible = findings.map((finding, index) => ({finding, index}))
+    .filter(item => matchesFilter(item.finding, query));
+  const locations = visible.reduce((total, item) => total + item.finding.locations.length, 0);
   $("result-count").textContent = counts(visible.length, locations);
   $("filter-summary").textContent = query.trim() && findings.length
     ? `Showing ${visible.length} of ${findings.length} ${findings.length === 1 ? "skill" : "skills"}.`
@@ -55,10 +138,17 @@ function renderFindings() {
     $("findings").append(element("p", "no-findings", "No skills match this filter."));
     return;
   }
-  for (const finding of visible) {
+  for (const {finding, index} of visible) {
     const card = element("article", "finding", "");
-    card.append(element("h3", "finding-name", finding.name), element("div", "finding-path", finding.path),
-      element("p", "finding-description", finding.description.replace(/\s+/g, " ").trim() || "(none)"));
+    const select = element("button", "finding-select", "");
+    select.type = "button";
+    select.dataset.findingIndex = String(index);
+    select.setAttribute("aria-pressed", "false");
+    select.setAttribute("aria-label", `Show skills similar to ${finding.name}`);
+    select.append(element("span", "finding-name", finding.name), element("span", "finding-path", finding.path),
+      element("span", "finding-description", finding.description.replace(/\s+/g, " ").trim() || "(none)"));
+    select.addEventListener("click", () => selectFinding(index));
+    card.append(select);
     if (finding.locations.length === 1) {
       card.append(element("div", "finding-id", finding.id), sourceLink(finding));
     } else {
@@ -84,8 +174,10 @@ function showResult(result) {
   $("result-target").textContent = result.target;
   $("result-branch").textContent = result.branch;
   $("result-commit").textContent = result.commit;
+  closeSimilarity();
   currentResult = result;
   $("skill-filter").value = "";
+  similarityModel = buildSimilarityModel(result.findings);
   renderFindings();
   currentText = result.text;
   $("plain-output").textContent = currentText;
@@ -175,7 +267,8 @@ $("copy-output").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(currentText); $("copy-output").textContent = "Copied"; }
   catch (_) { $("copy-output").textContent = "Select the output below to copy"; }
 });
-$("skill-filter").addEventListener("input", renderFindings);
 $("refresh-history").addEventListener("click", history);
+$("close-similarity").addEventListener("click", closeSimilarity);
+$("skill-filter").addEventListener("input", () => { closeSimilarity(); renderFindings(); });
 history();
 try { const saved = sessionStorage.getItem("atlas-job"); if (saved) trackJob(saved); } catch (_) { }

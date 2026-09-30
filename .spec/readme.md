@@ -390,12 +390,25 @@ environment at startup; a browser cannot change it.
 - The page polls a job until it completes or fails. Running status is
   indeterminate, not a fabricated percentage. A same-tab reload can resume
   polling using session storage; scanning still works when storage is disabled.
-- Successful results show branch, full commit, names, stable IDs, paths, source
-  links, and descriptions in the scanner's deterministic order. Missing
+- Successful results show branch, full commit, stable IDs, paths, source links,
+  names, and descriptions in the scanner's deterministic order. Missing
   descriptions display `(none)`. Empty scans have an explicit successful empty
-  state. A client-side text filter matches a case-insensitive substring of the
-  skill name or description, updates visible skill and location counts, and
-  shows an explicit no-match state. It resets when a different result opens.
+  state. Selecting a skill opens a separate related-skills panel containing all
+  other unique content groups in descending similarity order. Each entry shows
+  its rounded 0–100% score and can become the new selected skill.
+- A client-side text filter matches a case-insensitive substring of the skill
+  name or description, updates visible skill and location counts, and shows an
+  explicit no-match state. It resets when a different result opens; changing
+  the filter closes an open related-skills panel.
+- Similarity is computed locally in the browser over the current result. Text is
+  Unicode NFKC-normalized and case-folded, then split into letter/number tokens;
+  one-character tokens and a fixed set of common English filler words are
+  omitted. A skill name is included twice and its description once. Smoothed
+  inverse document frequency is `ln((N+1)/(df+1))+1`, term frequency is
+  `1+ln(count)`, vectors are L2-normalized, and cosine similarity is rounded to
+  the nearest whole percent. Ties retain deterministic representative-path
+  order. The score is lexical relevance, not semantic equivalence, and requires
+  no external service or source-content exposure.
 - Expandable, copyable text uses the exact `scan --verbose` formatter. HTTP(S) source links
   are clickable; other source URLs are copyable text. Descriptions and source
   paths are rendered as text, never interpreted as HTML or skill instructions.
@@ -468,6 +481,11 @@ nodes for repository-controlled content.
    or submit scans; repository descriptions cannot execute browser code.
 7. The form, results, and history remain usable at desktop and mobile widths,
    with labelled inputs, visible focus, and announced scan/error status.
+8. Selecting any non-empty result shows every other unique skill sorted by a
+   deterministic similarity percentage; a single-skill result explains that
+   there are no alternatives, and the panel can be closed.
+9. Filtering matches skill names and descriptions, reports visible counts and a
+   no-match state, and composes with skill selection without stale selections.
 
 ## 11. Duplicate skills and content storage
 

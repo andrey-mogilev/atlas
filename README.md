@@ -146,6 +146,13 @@ another submission receives a busy message. Reloading the page in the same tab
 can resume tracking the active job. The latest ten jobs remain available until
 server shutdown; saved results remain in SQLite.
 
+Select a skill card to open a separate related-skills panel. It ranks every
+other unique skill in that scan by a 0–100% lexical similarity score. The score
+uses smoothed TF-IDF cosine similarity over normalized names and descriptions,
+with name terms included twice and common English filler words omitted. It is a
+local, deterministic relevance hint rather than a semantic-equivalence claim;
+skills with different vocabulary can score low even when their purposes overlap.
+
 Scan history opens the latest 50 distinct saved scans, including CLI scans,
 without contacting the source again. It shows the originally persisted findings,
 not a fresh scan. In particular, plain folders use the existing `local` / `<NONE>`
