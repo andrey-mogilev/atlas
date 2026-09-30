@@ -43,7 +43,7 @@ the branch and commit SHA at which the skills were found.
   credential mechanism.
 - Semantic validation of the skill contents beyond the minimum extraction rules
   below.
-- A server, web UI, or cross-machine database synchronization.
+- Remote hosting, multiple users, or cross-machine database synchronization.
 
 ## 3. Command-line interface
 
@@ -256,3 +256,108 @@ Identity rules:
 - The default limits are 1 MiB per `SKILL.md` and 10 MiB total, configurable via
   `SKILL_SCAN_MAX_FILE_BYTES` and `SKILL_SCAN_MAX_TOTAL_BYTES`.
 - Private repositories work through the user's existing Git credentials.
+
+## 10. Local web interface
+
+### Startup and architecture
+
+`skill-atlas serve [--port <0-65535>]` starts the local web interface. The default
+port is 8080; 0 asks the OS for an available port. Invalid arguments exit 2;
+startup or bind failures exit 1. Startup prints the actual address and working
+directory. Users open the address manually and stop the process with Ctrl+C.
+
+The application remains a Java 17+ shaded JAR, using the JDK HTTP server with
+bundled HTML, CSS, and JavaScript. There are no external browser resources or
+frontend build dependencies. CLI and HTTP adapters call the same `ScanService`,
+which validates targets, invokes `GitScanner`, and commits through
+`SkillDatabase`. The CLI's command, output, error codes, identity rules, and
+database schema remain compatible. Configuration is read from the server's
+environment at startup; a browser cannot change it.
+
+### Inputs, execution, and outputs
+
+- The form accepts a repository URL or typed local folder path and an optional
+  branch. An empty branch field means no override. Relative folder paths resolve
+  from the server's startup working directory, which the page displays.
+- Uploads and browser folder pickers are not used: scanning needs filesystem
+  paths and the user's existing Git credentials. Local Git repositories still
+  scan committed files; plain folders still reject a branch override.
+- A scan starts asynchronously and returns a job ID. One scan runs at a time
+  per server; additional submissions fail with HTTP 409 instead of queuing.
+  History and status requests remain available during scanning.
+- The page polls a job until it completes or fails. Running status is
+  indeterminate, not a fabricated percentage. A same-tab reload can resume
+  polling using session storage; scanning still works when storage is disabled.
+- Successful results show branch, full commit, stable IDs, paths, source links,
+  and descriptions in the scanner's deterministic order. Missing descriptions
+  display `(none)`. Empty scans have an explicit successful empty state.
+- Expandable, copyable text uses the exact CLI formatter. HTTP(S) source links
+  are clickable; other source URLs are copyable text. Descriptions and source
+  paths are rendered as text, never interpreted as HTML or skill instructions.
+- Failed jobs carry the same numeric error categories as the CLI (1–5) and a
+  concise message. No raw Git output, credentials, source content, or stack trace
+  is logged by HTTP handlers. Unexpected server failures use a generic message.
+- Completed jobs are retained in memory up to ten jobs per server, with the
+  oldest removed when a new job is submitted. No full source contents are kept
+  in job results. Jobs do not survive a server restart; saved scans do.
+
+### Saved scan history
+
+History shows the newest 50 distinct saved scans by original scan time and ID,
+including CLI-created entries. Selecting an entry loads its persisted findings
+and formatted output without scanning again. Stable skill IDs allow findings
+at different commits to be compared. Full raw skill contents are not exposed.
+Reads of a missing database return empty history and do not create a database.
+Read failures are displayed with error category 5.
+
+Existing persistence semantics apply: rescans of a repository, branch, and
+commit reuse the scan record and its original timestamp. Non-Git folders use
+`local` and `<NONE>` for every invocation, so their saved entry is not a sequence
+of filesystem snapshots. Existing skill versions remain as first persisted;
+new paths can add versions to that record. Live scan results still reflect the
+files just read. History is explicitly a view of stored data.
+
+### HTTP contract and local access
+
+The server listens exclusively on IPv4 `127.0.0.1`. Host headers must match
+`127.0.0.1:<port>` or `localhost:<port>`. Cross-origin and browser cross-site
+requests are refused. All `/api/` routes require the per-process random
+`X-Atlas-Token` supplied in the local HTML page; no permissive CORS is enabled.
+This prevents third-party pages from submitting scans or reading local history.
+It is not an authentication system against other processes on the same machine.
+
+| Route | Contract |
+| --- | --- |
+| `GET /` | Form, results, and history UI. |
+| `POST /api/scans` | URL-encoded `target` and optional `branch`; HTTP 202 with `{id,status:"running"}`. |
+| `GET /api/jobs/<id>` | `{id,status}`; completed jobs add `result`, failed jobs add `code` and `message`. |
+| `GET /api/history` | Up to 50 entries with `id`, `target`, `branch`, `commit`, `scannedAt`, and `skillCount`. |
+| `GET /api/history/<id>` | Persisted result with `target`, `branch`, `commit`, `findings`, and formatted `text`. |
+
+Each finding contains `id`, `path`, `link`, and `description`. API responses use
+JSON. Unsupported methods return 405 with `Allow`; unknown jobs/scans return
+404; access checks return 403; malformed/unknown form fields return 400;
+unsupported content types return 415. Request bodies are capped at 8 KiB (413).
+Existing file, total content, and Git operation limits apply to scans. HTTP
+workers and their pending request queue are bounded. Server shutdown stops
+HTTP handling and interrupts the scan worker, allowing up to five seconds for
+the worker's Git and temporary-file cleanup before shutdown completes.
+
+Responses disable caching and content sniffing. A restrictive content security
+policy permits only bundled scripts/styles and same-origin connections, blocks
+framing, and prevents external resource loading. Browser rendering uses text
+nodes for repository-controlled content.
+
+### Web acceptance criteria
+
+1. A packaged server serves its assets and scans a local folder through HTTP.
+2. A CLI scan and web scan of the same source and database return identical
+   formatted output and IDs; Git branch overrides and errors remain compatible.
+3. Empty scans, malformed targets, missing folders/branches, size limits, and
+   database failures are represented accurately; failed scans persist no data.
+4. History includes earlier CLI scans and opens saved results after restart.
+5. Concurrent scan submissions receive 409 while status/history remain readable.
+6. Missing tokens, foreign origins, and unrecognized hosts cannot read history
+   or submit scans; repository descriptions cannot execute browser code.
+7. The form, results, and history remain usable at desktop and mobile widths,
+   with labelled inputs, visible focus, and announced scan/error status.

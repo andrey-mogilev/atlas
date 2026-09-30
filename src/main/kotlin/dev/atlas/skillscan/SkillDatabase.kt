@@ -61,6 +61,75 @@ internal class SkillDatabase(private val path: Path) {
         }
     }
 
+    fun recentScans(limit: Int = 25): List<StoredScan> {
+        require(limit in 1..100) { "limit must be between 1 and 100" }
+        return try {
+            if (Files.notExists(path)) return emptyList()
+            DriverManager.getConnection("jdbc:sqlite:$path").use { connection ->
+                connection.prepareStatement(
+                    """
+                    SELECT scans.requested_url, repositories.canonical_url, scans.scanned_branch, scans.commit_sha,
+                           scans.scanned_at, COUNT(skill_versions.id), scans.id
+                    FROM scans
+                    JOIN repositories ON repositories.id = scans.repository_id
+                    LEFT JOIN skill_versions ON skill_versions.scan_id = scans.id
+                    GROUP BY scans.id
+                    ORDER BY scans.scanned_at DESC, scans.id DESC
+                    LIMIT ?
+                    """.trimIndent()
+                ).use { statement ->
+                    statement.setInt(1, limit)
+                    statement.executeQuery().use { rows ->
+                        buildList {
+                            while (rows.next()) add(StoredScan(
+                                requestedTarget = rows.getString(1), canonicalTarget = rows.getString(2),
+                                branch = rows.getString(3), commit = rows.getString(4),
+                                scannedAt = rows.getString(5), skillCount = rows.getInt(6), id = rows.getLong(7)
+                            ))
+                        }
+                    }
+                }
+            }
+        } catch (_: SQLException) {
+            throw ScanFailure(5, "could not read scan history from database: $path")
+        }
+    }
+
+    fun readScan(id: Long): ScanResult? {
+        if (Files.notExists(path)) return null
+        try {
+            DriverManager.getConnection("jdbc:sqlite:$path").use { connection ->
+                connection.prepareStatement("""
+                    SELECT requested_url, canonical_url, scanned_branch, commit_sha FROM scans
+                    JOIN repositories ON repositories.id = repository_id WHERE scans.id = ?
+                """.trimIndent()).use { statement ->
+                    statement.setLong(1, id)
+                    statement.executeQuery().use { rows ->
+                        if (!rows.next()) return null
+                        val requested = rows.getString(1)
+                        val canonical = rows.getString(2)
+                        val snapshot = Snapshot(rows.getString(3), rows.getString(4), emptyList())
+                        val findings = connection.prepareStatement("""
+                            SELECT skills.id, source_path, description FROM skill_versions
+                            JOIN skills ON skills.id = skill_id WHERE scan_id = ? ORDER BY source_path COLLATE BINARY
+                        """.trimIndent()).use { query ->
+                            query.setLong(1, id)
+                            query.executeQuery().use { skills ->
+                                buildList {
+                                    while (skills.next()) add(Finding(skills.getString(1), canonical,
+                                        skills.getString(2), skills.getString(3), snapshot.commit))
+                                }
+                            }
+                        }
+                        return ScanResult(requested, canonical, snapshot, findings)
+                    }
+                }
+            }
+        } catch (_: SQLException) {
+            throw ScanFailure(5, "could not read scan history from database: $path")
+        }
+    }
+
     private fun createSchema(connection: Connection) {
         connection.createStatement().use { statement ->
             statement.execute("""
@@ -105,6 +174,16 @@ internal class SkillDatabase(private val path: Path) {
         }
     }
 }
+
+internal data class StoredScan(
+    val id: Long,
+    val requestedTarget: String,
+    val canonicalTarget: String,
+    val branch: String,
+    val commit: String,
+    val scannedAt: String,
+    val skillCount: Int
+)
 
 private fun Connection.scalarLong(sql: String, vararg args: Any): Long =
     prepareStatement(sql).use { statement ->

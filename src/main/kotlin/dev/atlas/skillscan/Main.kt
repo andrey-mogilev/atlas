@@ -11,31 +11,18 @@ internal data class SkillFile(val path: String, val content: String, val descrip
 internal data class Finding(val id: String, val repositoryUrl: String, val path: String, val description: String, val commit: String)
 
 fun main(args: Array<String>) {
-    exitProcess(runCli(args))
+    exitProcess(runCommand(args))
 }
 
-internal fun runCli(args: Array<String>): Int {
+internal fun runCommand(args: Array<String>): Int = if (args.firstOrNull() == "serve") runServer(args) else runCli(args)
+
+internal fun runCli(args: Array<String>, environment: Map<String, String> = System.getenv()): Int {
     try {
         if (args.size !in 2..4 || args[0] != "scan" || (args.size == 4 && args[2] != "--branch") || args.size == 3) {
             throw ScanFailure(2, "usage: skill-atlas scan <repository-url-or-folder> [--branch <branch-name>]")
         }
-        val requestedTarget = args[1]
-        val target = scanTarget(requestedTarget)
-        val branch = args.getOrNull(3)
-        val maxFileBytes = positiveLimit("SKILL_SCAN_MAX_FILE_BYTES", 1_048_576)
-        val maxTotalBytes = positiveLimit("SKILL_SCAN_MAX_TOTAL_BYTES", 10_485_760)
-        val databasePath = databasePath()
-
-        val scanner = GitScanner(maxFileBytes, maxTotalBytes)
-        val snapshot = if (target.localDirectory == null) {
-            scanner.scan(target.canonical, branch)
-        } else {
-            scanner.scanLocalDirectory(target.localDirectory, branch)
-        }
-        val findings = SkillDatabase(databasePath).save(
-            target.canonical, requestedTarget, snapshot.branch, snapshot.commit, snapshot.skills
-        )
-        println(formatFindings(snapshot, findings))
+        val result = ScanService.fromEnvironment(environment).scan(args[1], args.getOrNull(3))
+        println(formatFindings(result.snapshot, result.findings))
         return 0
     } catch (e: ScanFailure) {
         System.err.println("error: ${e.message}")
@@ -46,9 +33,30 @@ internal fun runCli(args: Array<String>): Int {
     }
 }
 
-private data class ScanTarget(val canonical: String, val localDirectory: Path?)
+internal data class ScanResult(val requestedTarget: String, val canonicalTarget: String, val snapshot: Snapshot, val findings: List<Finding>)
 
-private fun scanTarget(input: String): ScanTarget {
+internal class ScanService(private val database: SkillDatabase, private val maxFileBytes: Long, private val maxTotalBytes: Long) {
+    fun scan(requestedTarget: String, branch: String?): ScanResult {
+        val target = scanTarget(requestedTarget)
+        val scanner = GitScanner(maxFileBytes, maxTotalBytes)
+        val snapshot = if (target.localDirectory == null) scanner.scan(target.canonical, branch)
+        else scanner.scanLocalDirectory(target.localDirectory, branch)
+        val findings = database.save(target.canonical, requestedTarget, snapshot.branch, snapshot.commit, snapshot.skills)
+        return ScanResult(requestedTarget, target.canonical, snapshot, findings)
+    }
+
+    companion object {
+        fun fromEnvironment(environment: Map<String, String> = System.getenv()): ScanService = ScanService(
+            SkillDatabase(databasePath(environment)),
+            positiveLimit("SKILL_SCAN_MAX_FILE_BYTES", 1_048_576, environment),
+            positiveLimit("SKILL_SCAN_MAX_TOTAL_BYTES", 10_485_760, environment)
+        )
+    }
+}
+
+internal data class ScanTarget(val canonical: String, val localDirectory: Path?)
+
+internal fun scanTarget(input: String): ScanTarget {
     if (input.isBlank() || input.startsWith('-') || input.contains('\u0000') || input.any { it == '\n' || it == '\r' }) {
         throw ScanFailure(2, "malformed repository URL or folder path")
     }
@@ -64,14 +72,14 @@ private fun scanTarget(input: String): ScanTarget {
     return ScanTarget(directory.toUri().toString().trimEnd('/'), directory)
 }
 
-private fun positiveLimit(name: String, default: Long): Long {
-    val value = System.getenv(name) ?: return default
+internal fun positiveLimit(name: String, default: Long, environment: Map<String, String>): Long {
+    val value = environment[name] ?: return default
     return value.toLongOrNull()?.takeIf { it > 0 }
         ?: throw ScanFailure(2, "$name must be a positive integer")
 }
 
-private fun databasePath(): Path {
-    val override = System.getenv("SKILL_SCAN_DB_PATH")
+internal fun databasePath(environment: Map<String, String>): Path {
+    val override = environment["SKILL_SCAN_DB_PATH"]
     if (override != null) {
         if (override.isBlank()) throw ScanFailure(2, "SKILL_SCAN_DB_PATH must not be empty")
         return Path.of(override).toAbsolutePath().normalize()
@@ -80,8 +88,8 @@ private fun databasePath(): Path {
     val home = Path.of(System.getProperty("user.home"))
     val dir = when {
         os.contains("mac") -> home.resolve("Library/Application Support/skill-scan")
-        os.contains("win") -> Path.of(System.getenv("LOCALAPPDATA") ?: home.resolve("AppData/Local").toString()).resolve("skill-scan")
-        else -> Path.of(System.getenv("XDG_DATA_HOME") ?: home.resolve(".local/share").toString()).resolve("skill-scan")
+        os.contains("win") -> Path.of(environment["LOCALAPPDATA"] ?: home.resolve("AppData/Local").toString()).resolve("skill-scan")
+        else -> Path.of(environment["XDG_DATA_HOME"] ?: home.resolve(".local/share").toString()).resolve("skill-scan")
     }
     return dir.resolve("skills.db")
 }

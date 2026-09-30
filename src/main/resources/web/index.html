@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="atlas-token" content="__TOKEN__">
+  <title>Skill Atlas · Local skill explorer</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header><a class="brand" href="/">◈ <span>Skill Atlas</span></a><span class="local-badge"><span></span> Running locally</span></header>
+  <main>
+    <section class="intro"><p class="eyebrow">YOUR SKILLS, MAPPED.</p><h1>A clearer view of your skills.</h1><p>Explore a repository or folder. Find every skill, with its source and description in one place.</p></section>
+    <div class="workspace">
+      <div class="primary">
+        <section class="panel scan-panel" aria-labelledby="scan-heading">
+          <div class="section-title"><h2 id="scan-heading">Scan a source</h2><span>01 / Discover</span></div>
+          <form id="scan-form">
+            <label for="target">Repository URL or local folder</label>
+            <input id="target" name="target" type="text" required maxlength="4096" placeholder="https://github.com/org/skills.git or /path/to/skills" autocomplete="off" spellcheck="false" aria-describedby="target-help">
+            <p id="target-help" class="hint">Git URLs and local folders are supported. Relative paths start from <code>__BASE_DIRECTORY__</code>.</p>
+            <div class="form-bottom"><div><label for="branch">Branch <span class="optional">optional</span></label><input id="branch" name="branch" type="text" maxlength="1024" placeholder="Default branch" autocomplete="off" spellcheck="false"></div><button id="scan-button" type="submit">Scan source <span aria-hidden="true">↗</span></button></div>
+            <p class="hint">For Git repositories, scans read committed files at the selected branch head. Leave branch empty for non-Git folders.</p>
+          </form>
+          <p id="status" role="status" aria-live="polite" hidden></p>
+          <p id="error" role="alert" hidden></p>
+        </section>
+        <section class="panel results-panel" aria-labelledby="results-heading">
+          <div class="section-title"><h2 id="results-heading">Results</h2><span id="result-count">02 / Explore</span></div>
+          <div id="empty-state"><div class="empty-icon" aria-hidden="true">⌕</div><h3>Your next discovery starts here.</h3><p>Scan a source to see its skills, or open a saved scan from your history.</p></div>
+          <div id="results" hidden>
+            <p id="result-target" class="result-target"></p>
+            <div class="metadata"><span id="result-branch"></span><code id="result-commit"></code></div>
+            <div id="findings"></div>
+            <details><summary>View CLI output</summary><button id="copy-output" class="secondary" type="button">Copy output</button><pre id="plain-output"></pre></details>
+          </div>
+        </section>
+      </div>
+      <aside class="panel history-panel" aria-labelledby="history-heading">
+        <div class="section-title"><h2 id="history-heading">Scan history</h2><button id="refresh-history" type="button" class="text-button">Refresh</button></div>
+        <p class="hint">The latest 50 saved scans, including scans from the CLI.</p>
+        <p id="history-error" role="alert" hidden></p>
+        <div id="history"><p class="history-empty">Loading history…</p></div>
+        <p class="history-note">Saved on this computer. Repeated scans of the same branch and commit reuse the existing record.</p>
+      </aside>
+    </div>
+    <footer>Skill Atlas <span>Local sources. Clear origins.</span></footer>
+  </main>
+</body>
+</html>

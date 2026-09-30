@@ -1,9 +1,16 @@
 # skill-atlas
 
-A Kotlin CLI that finds `SKILL.md` files at the head of a Git repository branch,
-saves them to SQLite, and prints a readable summary of each skill.
+A Kotlin application with a CLI and local web interface that finds `SKILL.md`
+files at the head of a Git repository branch, saves them to SQLite, and shows a
+readable summary of each skill.
 
 Requires Java 17 or newer, Maven, and Git.
+
+## Verification
+
+Run `mvn verify` to build the shaded CLI, execute unit tests, and execute the
+offline integration tests. The integration tests create temporary Git
+repositories and SQLite databases; they do not require network access.
 
 ```sh
 mvn package
@@ -40,3 +47,42 @@ for Git repositories. HTTPS and SSH URLs remain separate repository identities
 in the local database.
 
 See [.spec/readme.md](.spec/readme.md) for the command contract.
+
+## Local web interface
+
+```sh
+mvn package
+./bin/skill-atlas serve
+# Or choose another port (0 selects an available port):
+./bin/skill-atlas serve --port 8090
+```
+
+Open the address printed in the terminal (normally `http://127.0.0.1:8080/`).
+The server binds only to this computer. Stop it with Ctrl+C. It uses Java's
+built-in HTTP server; no Node.js, frontend build, or additional runtime is needed.
+
+Enter the same repository URL or folder path accepted by `scan`, plus an optional
+branch. Relative folder paths resolve from the directory where the server was
+started, shown below the input. Use a typed folder path, not a browser upload:
+the server needs the real local Git repository and the installed Git credentials.
+Git scans read committed files; non-Git folders read their current files and
+require an empty branch field.
+
+The page shows the branch, full commit, paths, stable IDs, source links, and
+descriptions. “View CLI output” provides the same formatted text as `scan`, with
+a copy button. Non-web source URLs are displayed as text because browsers may
+block local file and SSH links. Scans run in the background, one at a time;
+another submission receives a busy message. Reloading the page in the same tab
+can resume tracking the active job. The latest ten jobs remain available until
+server shutdown; saved results remain in SQLite.
+
+Scan history opens the latest 50 distinct saved scans, including CLI scans,
+without contacting the source again. It shows the originally persisted findings,
+not a fresh scan. In particular, plain folders use the existing `local` / `<NONE>`
+identity: their saved history is not a chronological series of filesystem
+snapshots. Re-scanning them can display current content while history retains
+previously saved versions for existing paths.
+
+The web interface uses the same database and `SKILL_SCAN_*` settings as the CLI.
+Set these before starting the server. Credentials and database paths cannot be
+configured from the web page. The UI requires JavaScript and a modern browser.
