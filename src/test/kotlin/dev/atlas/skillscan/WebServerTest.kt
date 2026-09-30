@@ -37,6 +37,7 @@ class WebServerTest {
             assertEquals(formatFindings(expected.snapshot, expected.findings), result["text"])
             assertEquals("local", result["branch"])
             assertEquals("<NONE>", result["commit"])
+            assertEquals("Skill", ((result["findings"] as List<*>).single() as Map<*, *>)["name"])
             val history = Yaml().load<List<Map<String, Any>>>(request(server, "/api/history", token).body())
             assertEquals(1, history.size)
             scanId = history.single()["id"] as Number

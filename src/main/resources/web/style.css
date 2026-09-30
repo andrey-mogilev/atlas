@@ -282,6 +282,43 @@ h3{
   padding:20px 0;
   border-top:1px solid #e6eadd
 }
+.result-explorer{
+  display:block
+}
+.result-explorer.similarity-open{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(230px,34%);
+  gap:24px;
+  align-items:start
+}
+.finding-select{
+  display:block;
+  width:100%;
+  padding:12px;
+  margin:-12px 0 2px;
+  text-align:left;
+  background:transparent;
+  color:inherit;
+  border:1px solid transparent
+}
+.finding-select:hover{
+  background:#f6f8f1;
+  border-color:#e5eadf
+}
+.finding-select[aria-pressed="true"]{
+  background:#f0f5e9;
+  border-color:#cfddc8
+}
+.finding-name{
+  display:block;
+  font-size:15px;
+  font-weight:650;
+  color:#294d35;
+  margin-bottom:3px
+}
+.finding-select .finding-description{
+  display:block
+}
 .location-list {
   list-style: none;
   padding: 0 0 0 12px;
@@ -305,6 +342,89 @@ h3{
   white-space:pre-wrap;
   overflow-wrap:anywhere;
   margin:10px 0
+}
+.similarity-panel{
+  position:sticky;
+  top:18px;
+  background:#f7f9f3;
+  border:1px solid #dfe7d8;
+  border-radius:10px;
+  padding:18px;
+  margin-top:20px
+}
+.similarity-title{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:start
+}
+.similarity-title .eyebrow{
+  margin-bottom:5px;
+  font-size:9px
+}
+.similarity-title h3{
+  color:#304f39;
+  overflow-wrap:anywhere
+}
+.similarity-help{
+  color:#778371;
+  font-size:10px;
+  line-height:1.5;
+  margin:10px 0 14px
+}
+.similarity-list{
+  list-style:none;
+  padding:0;
+  margin:0
+}
+.similarity-item{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:9px;
+  align-items:center;
+  border-top:1px solid #e0e7da;
+  padding:10px 0
+}
+.similarity-choice{
+  min-width:0;
+  text-align:left;
+  background:transparent;
+  color:#365741;
+  padding:2px;
+  border-radius:4px
+}
+.similarity-choice:hover{
+  background:transparent;
+  text-decoration:underline
+}
+.similarity-skill-name,.similarity-path{
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis
+}
+.similarity-skill-name{
+  font-size:11px
+}
+.similarity-path{
+  color:#899283;
+  font:9px ui-monospace,monospace;
+  margin-top:3px
+}
+.similarity-score{
+  min-width:39px;
+  border-radius:999px;
+  background:#dfeadd;
+  color:#315c40;
+  padding:3px 6px;
+  text-align:center;
+  font-size:10px;
+  font-weight:700
+}
+.similarity-empty{
+  border-top:1px solid #e0e7da;
+  padding-top:12px;
+  color:#788373;
+  font-size:11px
 }
 .source-link{
   font-size:11px;
@@ -451,5 +571,13 @@ button[aria-current="true"]{
   }
   .section-title>span{
     font-size:9px
+  }
+  .result-explorer{
+    grid-template-columns:1fr
+  }
+  .similarity-panel{
+    position:static;
+    grid-row:1;
+    margin-top:8px
   }
 }

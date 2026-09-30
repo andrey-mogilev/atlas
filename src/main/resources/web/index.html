@@ -32,7 +32,14 @@
           <div id="results" hidden>
             <p id="result-target" class="result-target"></p>
             <div class="metadata"><span id="result-branch"></span><code id="result-commit"></code></div>
-            <div id="findings"></div>
+            <div id="result-explorer" class="result-explorer">
+              <div id="findings"></div>
+              <aside id="similarity-panel" class="similarity-panel" aria-labelledby="similarity-heading" hidden>
+                <div class="similarity-title"><div><p class="eyebrow">RELATED SKILLS</p><h3 id="similarity-heading">Similar to <span id="similarity-name"></span></h3></div><button id="close-similarity" class="text-button" type="button" aria-label="Close similar skills">Close</button></div>
+                <p class="similarity-help">Lexical similarity based on skill names and descriptions in this scan.</p>
+                <ol id="similarities" class="similarity-list"></ol>
+              </aside>
+            </div>
             <details><summary>View CLI output</summary><button id="copy-output" class="secondary" type="button">Copy output</button><pre id="plain-output"></pre></details>
           </div>
         </section>
