@@ -124,7 +124,11 @@ class WebServerTest {
             val root = request(server, "/")
             assertTrue(root.headers().firstValue("Content-Security-Policy").get().contains("frame-ancestors 'none'"))
             assertEquals("no-store", root.headers().firstValue("Cache-Control").get())
-            assertEquals(200, request(server, "/app.js").statusCode())
+            assertTrue(root.body().contains("id=\"skill-filter\""))
+            val script = request(server, "/app.js")
+            assertEquals(200, script.statusCode())
+            assertTrue(script.body().contains("finding.name.toLocaleLowerCase()"))
+            assertTrue(script.body().contains("finding.description.toLocaleLowerCase()"))
             assertEquals(200, request(server, "/style.css").statusCode())
             Socket("127.0.0.1", URI(server.origin).port).use { socket ->
                 socket.soTimeout = 3000

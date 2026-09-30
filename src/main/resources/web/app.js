@@ -2,6 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="atlas-token"]').content;
 let currentText = "";
+let currentResult = null;
 let activeJob = null;
 let displayVersion = 0;
 let similarityModel = null;
@@ -35,6 +36,11 @@ function sourceLink(location) {
     link.rel = "noopener noreferrer";
   }
   return link;
+}
+function matchesFilter(finding, query) {
+  const normalized = query.trim().toLocaleLowerCase();
+  return !normalized || finding.name.toLocaleLowerCase().includes(normalized) ||
+    finding.description.toLocaleLowerCase().includes(normalized);
 }
 function tokens(finding) {
   // Repeat name terms so concise identity words carry more weight than description prose.
@@ -76,12 +82,16 @@ function similarity(left, right) {
 }
 function selectFinding(selectedIndex) {
   const selected = similarityModel.findings[selectedIndex];
+  if (!matchesFilter(selected, $("skill-filter").value)) {
+    $("skill-filter").value = "";
+    renderFindings();
+  }
   const matches = similarityModel.findings.map((finding, index) => ({
     finding, index, percent: similarity(similarityModel.vectors[selectedIndex], similarityModel.vectors[index])
   })).filter(match => match.index !== selectedIndex).sort((left, right) =>
     right.percent - left.percent || (left.finding.path < right.finding.path ? -1 : left.finding.path > right.finding.path ? 1 : 0));
-  document.querySelectorAll(".finding-select").forEach((button, index) => {
-    button.setAttribute("aria-pressed", String(index === selectedIndex));
+  document.querySelectorAll(".finding-select").forEach(button => {
+    button.setAttribute("aria-pressed", String(Number(button.dataset.findingIndex) === selectedIndex));
   });
   $("similarity-name").textContent = selected.name;
   $("similarities").replaceChildren();
@@ -109,21 +119,30 @@ function closeSimilarity() {
   $("result-explorer").classList.remove("similarity-open");
   document.querySelectorAll(".finding-select").forEach(button => button.setAttribute("aria-pressed", "false"));
 }
-function showResult(result) {
-  $("empty-state").hidden = true;
-  $("results").hidden = false;
-  $("result-target").textContent = result.target;
-  $("result-branch").textContent = result.branch;
-  $("result-commit").textContent = result.commit;
-  $("result-count").textContent = counts(result.findings.length, result.locationCount);
+function renderFindings() {
+  const findings = currentResult.findings;
+  const query = $("skill-filter").value;
+  const visible = findings.map((finding, index) => ({finding, index}))
+    .filter(item => matchesFilter(item.finding, query));
+  const locations = visible.reduce((total, item) => total + item.finding.locations.length, 0);
+  $("result-count").textContent = counts(visible.length, locations);
+  $("filter-summary").textContent = query.trim() && findings.length
+    ? `Showing ${visible.length} of ${findings.length} ${findings.length === 1 ? "skill" : "skills"}.`
+    : "";
   $("findings").replaceChildren();
-  closeSimilarity();
-  similarityModel = buildSimilarityModel(result.findings);
-  if (!result.findings.length) $("findings").append(element("p", "no-findings", "No SKILL.md files found in this source."));
-  result.findings.forEach((finding, index) => {
+  if (!findings.length) {
+    $("findings").append(element("p", "no-findings", "No SKILL.md files found in this source."));
+    return;
+  }
+  if (!visible.length) {
+    $("findings").append(element("p", "no-findings", "No skills match this filter."));
+    return;
+  }
+  for (const {finding, index} of visible) {
     const card = element("article", "finding", "");
     const select = element("button", "finding-select", "");
     select.type = "button";
+    select.dataset.findingIndex = String(index);
     select.setAttribute("aria-pressed", "false");
     select.setAttribute("aria-label", `Show skills similar to ${finding.name}`);
     select.append(element("span", "finding-name", finding.name), element("span", "finding-path", finding.path),
@@ -147,7 +166,19 @@ function showResult(result) {
       card.append(locations);
     }
     $("findings").append(card);
-  });
+  }
+}
+function showResult(result) {
+  $("empty-state").hidden = true;
+  $("results").hidden = false;
+  $("result-target").textContent = result.target;
+  $("result-branch").textContent = result.branch;
+  $("result-commit").textContent = result.commit;
+  closeSimilarity();
+  currentResult = result;
+  $("skill-filter").value = "";
+  similarityModel = buildSimilarityModel(result.findings);
+  renderFindings();
   currentText = result.text;
   $("plain-output").textContent = currentText;
   $("copy-output").textContent = "Copy output";
@@ -238,5 +269,6 @@ $("copy-output").addEventListener("click", async () => {
 });
 $("refresh-history").addEventListener("click", history);
 $("close-similarity").addEventListener("click", closeSimilarity);
+$("skill-filter").addEventListener("input", () => { closeSimilarity(); renderFindings(); });
 history();
 try { const saved = sessionStorage.getItem("atlas-job"); if (saved) trackJob(saved); } catch (_) { }

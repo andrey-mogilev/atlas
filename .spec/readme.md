@@ -396,6 +396,10 @@ environment at startup; a browser cannot change it.
   state. Selecting a skill opens a separate related-skills panel containing all
   other unique content groups in descending similarity order. Each entry shows
   its rounded 0–100% score and can become the new selected skill.
+- A client-side text filter matches a case-insensitive substring of the skill
+  name or description, updates visible skill and location counts, and shows an
+  explicit no-match state. It resets when a different result opens; changing
+  the filter closes an open related-skills panel.
 - Similarity is computed locally in the browser over the current result. Text is
   Unicode NFKC-normalized and case-folded, then split into letter/number tokens;
   one-character tokens and a fixed set of common English filler words are
@@ -480,6 +484,8 @@ nodes for repository-controlled content.
 8. Selecting any non-empty result shows every other unique skill sorted by a
    deterministic similarity percentage; a single-skill result explains that
    there are no alternatives, and the panel can be closed.
+9. Filtering matches skill names and descriptions, reports visible counts and a
+   no-match state, and composes with skill selection without stale selections.
 
 ## 11. Duplicate skills and content storage
 
