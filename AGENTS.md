@@ -36,6 +36,11 @@ to record the intended behavior.
 - Commit and push the change branch to GitHub, then open a draft pull request
   targeting `main`. CI currently runs on pull requests and pushes to `main`,
   so a draft pull request is needed to validate a change branch.
+- Use `.github/pull_request_template.md` for every pull request description.
+  Keep all of its sections: a short summary, video demonstration, architecture
+  changes, tests run, and known limitations. Fill each section with concrete
+  details. When a section does not apply, state that explicitly and explain
+  why instead of removing it.
 - Review CI checks for the latest pull request revision. If a check fails
   because of the change, diagnose and fix it, push the fix, and repeat until
   the checks pass. Do not treat pending, skipped, or unavailable required
