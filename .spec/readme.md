@@ -1,5 +1,10 @@
 # Skill repository scanner — specification
 
+The planned repository-oriented web explorer is specified separately in
+[`multi-repository-web.md`](multi-repository-web.md). Until that feature is
+implemented, the single-result web contract in this document remains
+authoritative for current behavior.
+
 ## 1. Purpose
 
 Provide a command-line tool that inspects a Git repository or local folder,

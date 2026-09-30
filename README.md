@@ -86,6 +86,9 @@ or Git settings changed. Other hosts and explicit custom ports are not retried;
 branch, content, and validation failures do not trigger a fallback.
 
 See [.spec/readme.md](.spec/readme.md) for the command contract.
+The proposed multi-repository web experience is defined in
+[.spec/multi-repository-web.md](.spec/multi-repository-web.md); it is a planned
+feature, not current behavior.
 
 ## Duplicate skills
 
