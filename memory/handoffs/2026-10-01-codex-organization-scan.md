@@ -27,13 +27,12 @@ URL: https://cdn.playwright.dev/builds/cft/.../chrome-linux64.zip
 
 Consequences, both of which need a machine with a browser:
 
-1. `npm run test:visual` could not be run, so the tracked Chromium baselines in
-   `tests/visual.spec.js-snapshots/` were not re-reviewed locally. The new DOM
-   is hidden by default (`#owner-progress` is `hidden`, `#owner-dialog` is a
-   closed `<dialog>`), so the idle Scans and Skills pages are expected to be
-   unchanged. If CI reports a mismatch, review the uploaded
-   `visual-test-results` artifact and update baselines deliberately with
-   `npm run test:visual:update`.
+1. `npm run test:visual` could not be run locally. This turned out not to
+   matter: the new DOM is hidden by default (`#owner-progress` is `hidden`,
+   `#owner-dialog` is a closed `<dialog>`), and CI's comparison against the
+   tracked Linux Chromium baselines passed on the first revision of pull
+   request #13, so no baseline needed updating. Keep new idle-state DOM hidden
+   by default to preserve that property.
 2. `npm run demo:ui` could not record the video that `AGENTS.md` and the
    `web-ui-demo` skill require for a visible UI change, and
    `tests/ui-demo.scenario.js` and `tests/ui-demo.spec.js` were deliberately
@@ -41,12 +40,12 @@ Consequences, both of which need a machine with a browser:
 
 ## Remaining work
 
-- Record the demo on a machine with Chromium: extend
-  `tests/ui-demo.scenario.js` and `tests/ui-demo.spec.js` with the owner
-  confirmation dialog, the rescan checkbox, and the progress panel, run
-  `npm run demo:ui`, review the video, and add it to the pull request's
-  `Video demonstration` section before marking the pull request ready.
-- Confirm the visual baselines on that machine.
+Record the demo on a machine with Chromium: extend `tests/ui-demo.scenario.js`
+and `tests/ui-demo.spec.js` with the owner confirmation dialog, the rescan
+checkbox, and the progress panel, run `npm run demo:ui`, review the video, and
+add it to the pull request's `Video demonstration` section before marking the
+pull request ready for review. This is the only outstanding item; `mvn verify`
+and the visual comparison are green in CI.
 
 ## Not verified anywhere
 
