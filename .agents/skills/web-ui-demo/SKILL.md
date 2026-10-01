@@ -8,7 +8,7 @@ description: Record or play concise video demonstrations of Atlas's web UI. Use 
 Record or show user-visible Atlas behavior. The skill supports two modes:
 
 - **Manual demo:** When explicitly invoked, record the requested scenario or locate and play an existing demo. A pull request is not required.
-- **UI-change evidence:** When completing a branch that changes visible UI behavior, record the final behavior immediately before the pull request and attach the current demo to its description. Repeat this after follow-up commits that alter what a reviewer would see.
+- **UI-change evidence:** When completing a branch that changes visible UI behavior, record the final behavior immediately before opening or updating the pull request. Attach the current demo and screenshots either to the pull request or to an AIr Automation run, then link the evidence from the pull request description. Repeat this after follow-up commits that alter what a reviewer would see.
 
 ## Prepare the scenario
 
@@ -45,8 +45,8 @@ When the user asks to see a demo, list or identify the relevant files in `demos/
 
 This section applies only when the demo is evidence for a UI-changing branch or the user explicitly asks to add a demo to a pull request. A manual invocation does not imply permission to create or modify a pull request.
 
-Record after the final UI-affecting change and just before creating the draft pull request. In the PR description, complete the `## Video demonstration` section by stating what the recording shows and embedding or linking the branch-day video from `demos/`. Add key screenshots when they help reviewers navigate the scenario. Prefer uploading through GitHub's PR editor so the media remains accessible to reviewers; verify the rendered description opens or plays it.
+Record after the final UI-affecting change and just before opening or updating the pull request. Attach the branch-day video and key screenshots from `demos/` either directly to the pull request or to an AIr Automation run. In the PR description, complete the `## Video demonstration` section by stating what the evidence shows and adding links to the attached artifacts or the run that contains them. Verify that reviewers can open or play the linked evidence.
 
 If a later commit changes visible behavior, create a replacement recording from the latest revision and update the same PR section. Remove obsolete links so the description presents one authoritative current demonstration.
 
-Do not mark the pull request ready for review until the video is present, current, viewable, and free of sensitive information. If recording or upload is unavailable, leave the PR in draft and report the concrete blocker instead of claiming completion.
+Do not mark the pull request ready for review until the linked evidence is present, current, viewable, and free of sensitive information. Evidence hosted by an AIr Automation run satisfies this requirement; once the other completion and CI requirements are met, mark the pull request ready for review rather than leaving it in draft. If neither attachment location is available, report the concrete blocker instead of claiming completion.

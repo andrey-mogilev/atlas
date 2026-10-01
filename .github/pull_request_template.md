@@ -5,9 +5,10 @@
 ## Video demonstration
 
 <!--
-For every visible web UI change, briefly state what the current recording
-demonstrates and attach or link the video. If the change has no demonstrable
-user-visible behavior, write "Not applicable" and explain why.
+For every visible web UI change, briefly state what the current video and
+screenshots demonstrate and link the evidence attached to this pull request or
+to an AIr Automation run. If the change has no demonstrable user-visible
+behavior, write "Not applicable" and explain why.
 -->
 
 ## Architecture changes
