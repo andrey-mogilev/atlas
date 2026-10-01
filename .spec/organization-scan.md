@@ -43,20 +43,30 @@ Owner targets are expanded through the GitHub REST API over HTTPS:
    - A user account that is the token's own account, established by comparing
      `GET /user`'s login case-insensitively, uses
      `GET /user/repos?affiliation=owner`, which includes private repositories.
-   - Every other user account uses `GET /users/<login>/repos`. That endpoint is
-     public-only by definition, and another account's private repositories
-     cannot be listed through any endpoint, so nothing is lost.
+   - Every other user account uses `GET /users/<login>/repos`, which is
+     public-only by definition, merged with
+     `GET /user/repos?affiliation=collaborator`, because a private repository
+     owned by another user is reachable when the token holder collaborates on
+     it. `affiliation=organization_member` cannot contribute to a user's
+     listing, since those repositories are owned by an organization. A
+     repository the token holder has no affiliation with stays invisible, which
+     is a property of the GitHub API.
    - A token that cannot name an authenticated user is a GitHub App
      installation token, which is what Actions' `GITHUB_TOKEN` is. Its
      repositories are visible only through
      `GET /installation/repositories`, whose entries live under a
      `repositories` key, so that listing is merged in as well.
 
-   `GET /user` is an identity probe, never a precondition: failing it, as an
-   installation token does with HTTP 403, must not fail the scan. The
-   installation listing is likewise optional, so a token with no installation
-   still scans whatever its primary listing returns. A primary listing that
-   cannot be read remains a scan failure.
+   `GET /user` is an identity probe, never a precondition: an installation
+   token's explicit HTTP 403 means "no authenticated user" and must not fail the
+   scan. The installation listing is skippable in the same way, so a token with
+   no installation still scans whatever its primary listing returns.
+
+   Only an explicit out-of-scope answer — HTTP 401, 403, or 404 whose body does
+   not report a rate limit — counts as absence, and only on a listing's first
+   page. A rate limit, a transient status, an unreadable body, and any failure
+   on a later page all propagate, because a listing that stopped early must
+   never be reported as a complete plan.
 
    Each listing is requested with `per_page=100` and increasing `page` until a
    short page is returned, and all listings merge into one set keyed by
@@ -220,18 +230,23 @@ text-rendering rules apply unchanged to the new route and the new job fields.
 10. A branch supplied with an owner target fails the job with category `2`, and
     an invalid `rescan` value is rejected with HTTP 400.
 11. A token scanning its own user account lists that account's private
-    repositories; any other account keeps the public listing.
+    repositories, and scanning another user's account lists the private
+    repositories it collaborates on alongside that account's public ones.
 12. An installation token, which cannot name an authenticated user, enumerates
     through the installation listing merged with the public one instead of
     failing the scan.
-13. A response that sends headers and then stalls its body is abandoned at the
+13. A failure after a listing's first page, a rate limit, and a transient
+    identity-probe failure are all reported; none of them can shorten a plan
+    that is then presented as complete.
+14. A response that sends headers and then stalls its body is abandoned at the
     deadline rather than blocking the caller.
-14. The Skills page loads every repository an owner scan saved, including a
+15. The Skills page loads every repository an owner scan saved, including a
     selection larger than one results request accepts.
-15. Automated tests cover owner detection, enumeration paging and limits, the
-    listing endpoints chosen per account and credentials including an
-    installation token, the response deadline and size bound, API failure
-    mapping, skip and rescan behavior, failure
+16. Automated tests cover owner detection, enumeration paging and limits, the
+    listing endpoints chosen per account and credentials including
+    collaborator access and an installation token, the distinction between an
+    absent endpoint and a failed one, the response deadline and size bound, API
+    failure mapping, skip and rescan behavior, failure
     isolation, option validation, report and JSON formatting, the web preview,
     progress, and rejection paths, and a Skills selection above the
     results-endpoint limit.

@@ -25,6 +25,9 @@ private const val MAX_REPOSITORY_PAGES = 100
 private const val MAX_API_RESPONSE_BYTES = 2L * 1024 * 1024
 private val DEFAULT_API_DEADLINE: Duration = Duration.ofSeconds(30)
 
+/** Statuses with which GitHub says an endpoint is not for these credentials. */
+private val OUT_OF_CREDENTIAL_SCOPE = setOf(401, 403, 404)
+
 internal data class OwnerRepository(val fullName: String, val url: String)
 
 internal data class OwnerPlan(
@@ -39,10 +42,10 @@ internal data class ApiResponse(val status: Int, val body: String)
 
 /**
  * One repository listing endpoint. [wrapped] marks a response that carries its entries under a
- * `repositories` key rather than being an array; [optional] marks one whose failure is not the
- * scan's failure.
+ * `repositories` key rather than being an array; [skippable] marks one that the credentials may
+ * not have at all, which is absence rather than failure.
  */
-private data class RepositoryListing(val url: String, val optional: Boolean = false, val wrapped: Boolean = false)
+private data class RepositoryListing(val url: String, val skippable: Boolean = false, val wrapped: Boolean = false)
 
 /**
  * A GitHub URL with a single path segment names a user or organization rather than a repository.
@@ -84,34 +87,43 @@ internal class GitHubApi(
      * Which endpoints can see an account's repositories depends on the credentials:
      *
      * - the organization endpoint already includes the private and internal repositories a token
-     *   can see, so it is always the primary listing for an organization;
-     * - the public user endpoint never includes private repositories, so an account that is the
-     *   token's own is listed through the authenticated endpoint instead. Another account's private
-     *   repositories cannot be listed at all, so the public endpoint stays correct for every
-     *   other user;
-     * - a GitHub App installation token, which is what Actions' `GITHUB_TOKEN` is, has no user
+     *   can see, so it is the only listing needed for an organization;
+     * - the public user endpoint never includes private repositories. The token's own account is
+     *   listed through `affiliation=owner` instead, and any other user's private repositories are
+     *   reachable when the token holder collaborates on them, so `affiliation=collaborator` is
+     *   merged into the public listing. Organization membership cannot contribute to a user's
+     *   listing, because those repositories are owned by the organization;
+     * - a GitHub App installation token, which is what a workflow's `GITHUB_TOKEN` is, has no user
      *   identity at all. Its repositories are visible only through the installation listing, so
      *   that listing is merged in whenever a token cannot name a user.
      */
     private fun repositoryListings(login: String, type: String): List<RepositoryListing> {
         val own = if (token == null) null else authenticatedLogin()
-        val primary = when {
-            type == "Organization" -> "$GITHUB_API_ORIGIN/orgs/$login/repos?"
-            own != null && own.equals(login, ignoreCase = true) -> "$GITHUB_API_ORIGIN/user/repos?affiliation=owner&"
-            else -> "$GITHUB_API_ORIGIN/users/$login/repos?"
+        val listings = mutableListOf<RepositoryListing>()
+        when {
+            type == "Organization" -> listings += RepositoryListing("$GITHUB_API_ORIGIN/orgs/$login/repos?")
+            own != null && own.equals(login, ignoreCase = true) ->
+                listings += RepositoryListing("$GITHUB_API_ORIGIN/user/repos?affiliation=owner&")
+            else -> {
+                listings += RepositoryListing("$GITHUB_API_ORIGIN/users/$login/repos?")
+                if (own != null) {
+                    listings += RepositoryListing("$GITHUB_API_ORIGIN/user/repos?affiliation=collaborator&")
+                }
+            }
         }
-        val listings = mutableListOf(RepositoryListing(primary))
         if (token != null && own == null) {
             listings += RepositoryListing("$GITHUB_API_ORIGIN/installation/repositories?",
-                optional = true, wrapped = true)
+                skippable = true, wrapped = true)
         }
         return listings
     }
 
     /**
-     * Reads one listing into the merged set and reports whether a limit cut it short. An optional
-     * listing that the credentials cannot read is skipped: a token without a GitHub App
-     * installation must still scan the repositories its primary listing returns.
+     * Reads one listing into the merged set and reports whether a limit cut it short. A skippable
+     * listing is skipped only when its first page says the credentials do not have that endpoint,
+     * so a token with no GitHub App installation still scans its primary listing. Every other
+     * failure, including one on a later page, propagates: a listing that stopped early must never
+     * be reported as a complete plan.
      */
     private fun readListing(
         listing: RepositoryListing,
@@ -120,16 +132,12 @@ internal class GitHubApi(
     ): Boolean {
         var page = 1
         while (true) {
-            val body = try {
-                read("${listing.url}per_page=$REPOSITORY_PAGE_SIZE&page=$page", login)
-            } catch (failure: ScanFailure) {
-                if (listing.optional) return false
-                throw failure
-            }
+            val url = "${listing.url}per_page=$REPOSITORY_PAGE_SIZE&page=$page"
+            val body = if (listing.skippable && page == 1) readIfAvailable(url, login) ?: return false
+            else read(url, login)
             val decoded = decode(body)
             val entries = (if (listing.wrapped) (decoded as? Map<*, *>)?.get("repositories") else decoded) as? List<*>
-                ?: if (listing.optional) return false
-                else throw ScanFailure(1, "GitHub returned an unexpected repository listing for $login")
+                ?: throw ScanFailure(1, "GitHub returned an unexpected repository listing for $login")
             for (entry in entries) {
                 val repository = (entry as? Map<*, *>)?.let { ownerRepository(it, login) } ?: continue
                 if (repository.url in into) continue
@@ -142,10 +150,14 @@ internal class GitHubApi(
         }
     }
 
-    /** Never fails the scan: an installation token has no authenticated user to report. */
+    /**
+     * Identifies the token's own account. An installation token has no such account and says so
+     * explicitly, which is absence rather than failure; any other failure is reported, so a
+     * transient error cannot quietly downgrade the scan to the public listing.
+     */
     private fun authenticatedLogin(): String? {
-        val self = runCatching { decode(read("$GITHUB_API_ORIGIN/user", "the authenticated account")) }.getOrNull()
-        return ((self as? Map<*, *>)?.get("login") as? String)?.takeUnless { it.isBlank() }
+        val body = readIfAvailable("$GITHUB_API_ORIGIN/user", "the authenticated account") ?: return null
+        return ((decode(body) as? Map<*, *>)?.get("login") as? String)?.takeUnless { it.isBlank() }
     }
 
     private fun ownerRepository(entry: Map<*, *>, login: String): OwnerRepository? {
@@ -159,21 +171,34 @@ internal class GitHubApi(
         return OwnerRepository(fullName, url)
     }
 
-    private fun read(url: String, login: String): String {
-        val response = try {
-            get(url, token)
-        } catch (failure: ScanFailure) {
-            throw failure
-        } catch (_: Exception) {
-            throw ScanFailure(3, "GitHub could not be reached at $GITHUB_API_ORIGIN")
-        }
-        return when (response.status) {
-            200 -> response.body
-            404 -> throw ScanFailure(3, "GitHub user or organization not found: $login")
-            401, 403, 429 -> throw ScanFailure(3, "GitHub refused the request for $login (HTTP ${response.status}); " +
-                "check SKILL_SCAN_GITHUB_TOKEN or GITHUB_TOKEN, or wait for the API rate limit to reset")
-            else -> throw ScanFailure(1, "GitHub returned an unexpected response for $login (HTTP ${response.status})")
-        }
+    private fun read(url: String, login: String): String = interpret(fetch(url), login)
+
+    /**
+     * Reads an endpoint these credentials may simply not have, returning null when they do not.
+     * Only an explicit "not for you" answer counts as absence: a rate limit shares HTTP 403 with
+     * it but is transient, and every other failure is reported as usual, so an incomplete listing
+     * can never be mistaken for a complete one.
+     */
+    private fun readIfAvailable(url: String, login: String): String? {
+        val response = fetch(url)
+        if (response.status in OUT_OF_CREDENTIAL_SCOPE && !response.body.contains("rate limit", true)) return null
+        return interpret(response, login)
+    }
+
+    private fun fetch(url: String): ApiResponse = try {
+        get(url, token)
+    } catch (failure: ScanFailure) {
+        throw failure
+    } catch (_: Exception) {
+        throw ScanFailure(3, "GitHub could not be reached at $GITHUB_API_ORIGIN")
+    }
+
+    private fun interpret(response: ApiResponse, login: String): String = when (response.status) {
+        200 -> response.body
+        404 -> throw ScanFailure(3, "GitHub user or organization not found: $login")
+        401, 403, 429 -> throw ScanFailure(3, "GitHub refused the request for $login (HTTP ${response.status}); " +
+            "check SKILL_SCAN_GITHUB_TOKEN or GITHUB_TOKEN, or wait for the API rate limit to reset")
+        else -> throw ScanFailure(1, "GitHub returned an unexpected response for $login (HTTP ${response.status})")
     }
 
     /** JSON is read as YAML with a safe constructor: no Java types are instantiated from the response. */

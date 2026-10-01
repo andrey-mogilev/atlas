@@ -128,10 +128,10 @@ and does not stop the remaining repositories; the command then exits 1.
 
 Set `SKILL_SCAN_GITHUB_TOKEN`, or `GITHUB_TOKEN`, to include private
 repositories and to raise the GitHub API rate limit. A token reveals an
-organization's private and internal repositories, and your own private
-repositories when you scan your own account; another user's private
-repositories are not listable through the GitHub API at all, so scanning
-someone else's account always sees their public repositories only. A GitHub App
+organization's private and internal repositories, your own private repositories
+when you scan your own account, and another user's private repositories that
+you collaborate on; repositories you have no affiliation with stay invisible,
+which is a property of the GitHub API. A GitHub App
 installation token, which is what a workflow's `GITHUB_TOKEN` is, has no user
 identity; the repositories it can reach are found through its installation
 instead, and a token with no installation simply scans what the public listing

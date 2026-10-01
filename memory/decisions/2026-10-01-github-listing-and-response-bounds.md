@@ -40,15 +40,23 @@ the documentation alone.
   the credentials, merged into one set keyed by canonical URL. Organizations
   keep `/orgs/<login>/repos`, which is already private-aware. A user account
   that is the token's own account uses `/user/repos?affiliation=owner`. Every
-  other account keeps the public endpoint. A token that cannot name a user is
-  an installation token, so `/installation/repositories` is merged in for it.
-  Filter listing entries by the resolved login, because the authenticated and
-  installation endpoints both return repositories the requested account does
-  not own.
-- Classify each listing as required or optional. `GET /user` is an identity
-  probe whose failure yields "no identity", never a scan failure, and the
-  installation listing is optional so a token without an installation still
-  scans its primary listing. Only a primary listing's failure fails the scan.
+  other user account merges the public endpoint with
+  `/user/repos?affiliation=collaborator`, because a private repository owned by
+  someone else is reachable through collaboration.
+  `affiliation=organization_member` is deliberately absent: those repositories
+  are owned by an organization, so they cannot appear in a user's listing, and
+  including it would page through every repository the token can reach. A token
+  that cannot name a user is an installation token, so
+  `/installation/repositories` is merged in for it. Filter listing entries by
+  the resolved login, because the authenticated and installation endpoints both
+  return repositories the requested account does not own.
+- Distinguish an *absent* endpoint from a *failed* one, and treat only absence
+  as skippable. Absence is HTTP 401, 403, or 404 whose body does not report a
+  rate limit, and only on a listing's first page. `GET /user` is an identity
+  probe that resolves to "no identity" on absence, and the installation listing
+  is skipped on absence, so a token without an installation still scans its
+  primary listing. Everything else — a rate limit sharing HTTP 403, a transient
+  status, an unreadable body, any failure on a later page — propagates.
 - Bound the whole GitHub exchange with one deadline and collect the body with a
   size-limited `BodySubscriber`, cancelling the response when either bound is
   reached. Never rely on a request timeout to bound a body.
@@ -57,9 +65,10 @@ the documentation alone.
 
 ## Consequences
 
-- Another account's private repositories remain invisible. This is a property
-  of the GitHub API, not a limitation of the chosen endpoints, so no further
-  work can recover them.
+- Another account's private repositories are visible exactly when the token
+  holder collaborates on them. Repositories with no affiliation at all remain
+  invisible, which is a property of the GitHub API rather than of the chosen
+  endpoints.
 - A token is still never passed to Git. An authenticated owner scan therefore
   *plans* a private repository and then reports it as a per-repository `code 3`
   failure unless the user's Git credentials can clone it. Documented in the
@@ -77,9 +86,15 @@ authenticated request, if `GET /user` becomes available to installation
 tokens, if a token is ever handed to Git, or if the combined-results route's
 ID limit changes.
 
-## Generalization worth keeping
+## Generalizations worth keeping
 
 Credential *kinds* differ in which endpoints they can reach, not only in what
 those endpoints return. Any new GitHub call added here must state whether it is
 required or merely informative, because treating an informative call as
-required converts a narrower credential into a total failure.
+required converts a narrower credential into a total failure — and tolerating a
+required call's failure converts an incomplete answer into a confident wrong
+one. Both mistakes were made here in succession, in that order.
+
+"Not permitted" and "not right now" share HTTP 403 on this API. Any code that
+treats 403 as a permanent answer has to exclude the rate-limit case explicitly,
+or it will silently drop data whenever the limit is reached.

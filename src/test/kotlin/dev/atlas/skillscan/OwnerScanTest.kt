@@ -93,7 +93,7 @@ class OwnerScanTest {
             "the authenticated listing also returns repositories the account does not own")
     }
 
-    @Test fun `another account keeps the public listing even with a token`() {
+    @Test fun `each account type is listed through the endpoints its credentials can reach`() {
         for (type in listOf("User", "Organization")) {
             val requests = mutableListOf<String>()
             api(requests = requests, token = "secret") { url ->
@@ -103,11 +103,65 @@ class OwnerScanTest {
                     else -> ApiResponse(200, listing("acme/one"))
                 }
             }.plan("acme")
-            val expected = if (type == "Organization") "$GITHUB_API_ORIGIN/orgs/acme/repos?per_page=100&page=1"
-            else "$GITHUB_API_ORIGIN/users/acme/repos?per_page=100&page=1"
-            assertEquals(expected, requests.last(), type)
+            val listings = requests.drop(2)
+            assertEquals(if (type == "Organization") listOf("$GITHUB_API_ORIGIN/orgs/acme/repos?per_page=100&page=1")
+            // The organization endpoint already covers every affiliation within the organization.
+            else listOf("$GITHUB_API_ORIGIN/users/acme/repos?per_page=100&page=1",
+                "$GITHUB_API_ORIGIN/user/repos?affiliation=collaborator&per_page=100&page=1"), listings, type)
             // A token that names a user is not an installation token, so no installation listing.
             assertFalse(requests.any { it.startsWith("$GITHUB_API_ORIGIN/installation/repositories") }, type)
+            assertFalse(requests.any { it.contains("affiliation=owner") }, type)
+        }
+    }
+
+    @Test fun `a token lists another account's private repositories it collaborates on`() {
+        val requests = mutableListOf<String>()
+        val resolved = api(requests = requests, token = "alice") { url ->
+            when {
+                url.endsWith("/users/bob") -> ApiResponse(200, account("bob", "User"))
+                url.endsWith("/user") -> ApiResponse(200, """{"login":"alice","type":"User"}""")
+                url.startsWith("$GITHUB_API_ORIGIN/users/bob/repos") -> ApiResponse(200, listing("bob/public"))
+                url.startsWith("$GITHUB_API_ORIGIN/user/repos?affiliation=collaborator") ->
+                    ApiResponse(200, listing("bob/private", "carol/elsewhere"))
+                else -> ApiResponse(200, "[]")
+            }
+        }.plan("bob")
+        assertEquals(listOf("bob/private", "bob/public"), resolved.repositories.map { it.fullName })
+        assertTrue(requests.any { it.startsWith("$GITHUB_API_ORIGIN/user/repos?affiliation=collaborator") })
+        // Organization-owned repositories can never belong to a user account.
+        assertFalse(requests.any { it.contains("organization_member") })
+    }
+
+    @Test fun `an incomplete listing is never reported as a complete plan`() {
+        val pageOne = listing(*(1..100).map { "dev/repo-%03d".format(it) }.toTypedArray())
+        // A later page failing, and a rate limit sharing HTTP 403 with "not for you",
+        // must both be reported rather than quietly shortening the plan.
+        for (later in listOf(ApiResponse(500, "{}"), ApiResponse(403, """{"message":"API rate limit exceeded"}"""))) {
+            val failure = assertThrows(ScanFailure::class.java) {
+                api(token = "installation") { url ->
+                    when {
+                        url.endsWith("/users/dev") -> ApiResponse(200, account("dev", "User"))
+                        url.endsWith("/user") -> ApiResponse(403, """{"message":"Resource not accessible by integration"}""")
+                        url.startsWith("$GITHUB_API_ORIGIN/users/dev/repos") -> ApiResponse(200, "[]")
+                        url.endsWith("page=1") -> ApiResponse(200, """{"total_count":200,"repositories":$pageOne}""")
+                        else -> later
+                    }
+                }.plan("dev")
+            }
+            assertEquals(if (later.status == 500) 1 else 3, failure.exitCode, later.body)
+        }
+    }
+
+    @Test fun `a rate limited identity probe is reported rather than read as no identity`() {
+        for (transient in listOf(ApiResponse(500, "{}"), ApiResponse(403, """{"message":"API rate limit exceeded"}"""))) {
+            val failure = assertThrows(ScanFailure::class.java) {
+                api(token = "whatever") { url ->
+                    if (url.endsWith("/users/dev")) ApiResponse(200, account("dev", "User"))
+                    else if (url.endsWith("/user")) transient
+                    else ApiResponse(200, listing("dev/one"))
+                }.plan("dev")
+            }
+            assertEquals(if (transient.status == 500) 1 else 3, failure.exitCode, transient.body)
         }
     }
 
