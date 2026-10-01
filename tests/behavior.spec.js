@@ -60,6 +60,7 @@ test("starred skills lead the skill list, survive filtering, and persist", async
   await page.locator("#scans-nav").click();
   await scan(page, source);
   await page.locator("#skills-nav").click();
+  await expect(page.locator("#findings .finding")).toHaveCount(3);
   expect(await visibleNames(page)).toEqual(["Release planning", "Accessibility review", "Release notes"]);
   await expect(page.locator("#findings .finding").first().locator(".finding-star")).toHaveAttribute("aria-pressed", "true");
 
