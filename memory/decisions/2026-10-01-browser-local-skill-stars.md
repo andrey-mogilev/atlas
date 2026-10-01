@@ -20,10 +20,10 @@ column, migration, or mutation route was added, and the ordering is applied in
 the browser when the skill list is rendered.
 
 A card counts as starred when any location in its duplicate group is starred,
-and starring marks the group's representative location. This matters because
-the base specification allows a group's representative ID to change when the
-set of locations changes, so keying only on the representative would silently
-drop a star after a rescan.
+and starring records every location currently in the group. This matters
+because the base specification allows a group's representative ID to change
+when the set of locations changes, so keying only on the representative would
+silently drop a star after a rescan that removes that copy.
 
 Stored IDs for skills outside the active corpus are retained rather than
 pruned, unlike stale repository identities, because a disabled repository's

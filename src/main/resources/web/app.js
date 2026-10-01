@@ -41,7 +41,7 @@ function persistStars() { try { localStorage.setItem("atlas-starred-skills", JSO
 /** A card is starred when any of its grouped locations is, so stars survive changes to a duplicate group. */
 function isStarred(finding) { return finding.locations.some(location => starredSkills.has(location.id)); }
 function toggleStar(finding) {
-  if (isStarred(finding)) finding.locations.forEach(location => starredSkills.delete(location.id)); else starredSkills.add(finding.id);
+  if (isStarred(finding)) finding.locations.forEach(location => starredSkills.delete(location.id)); else finding.locations.forEach(location => starredSkills.add(location.id));
   persistStars(); renderFindings();
   const restored = [...document.querySelectorAll(".finding-star")].find(node => node.dataset.findingKey === findingKey(finding));
   if (restored) restored.focus();

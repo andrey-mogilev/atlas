@@ -5,6 +5,7 @@ const {test, expect} = require("@playwright/test");
 
 const fixture = path.join(__dirname, "fixtures/demo-source");
 const source = path.join(os.tmpdir(), "atlas-behavior-source");
+const duplicate = path.join(source, "skills/release-planning-copy/SKILL.md");
 const unstarred = ["Accessibility review", "Release notes", "Release planning"];
 
 function visibleNames(page) {
@@ -23,6 +24,8 @@ async function scan(page, target) {
 test("starred skills lead the skill list, survive filtering, and persist", async ({page}) => {
   await fs.rm(source, {recursive: true, force: true});
   await fs.cp(fixture, source, {recursive: true});
+  await fs.mkdir(path.dirname(duplicate), {recursive: true});
+  await fs.copyFile(path.join(source, "skills/release-planning/SKILL.md"), duplicate);
 
   await page.goto("/scans");
   await scan(page, source);
@@ -51,6 +54,14 @@ test("starred skills lead the skill list, survive filtering, and persist", async
   await page.reload();
   await expect(page.locator("#findings .finding")).toHaveCount(3);
   expect(await visibleNames(page)).toEqual(["Release planning", "Accessibility review", "Release notes"]);
+
+  // A duplicate group remains starred when the representative copy is removed by a later scan.
+  await fs.rm(path.dirname(duplicate), {recursive: true});
+  await page.locator("#scans-nav").click();
+  await scan(page, source);
+  await page.locator("#skills-nav").click();
+  expect(await visibleNames(page)).toEqual(["Release planning", "Accessibility review", "Release notes"]);
+  await expect(page.locator("#findings .finding").first().locator(".finding-star")).toHaveAttribute("aria-pressed", "true");
 
   // Unstarring from the keyboard restores the original order and keeps focus on the same skill.
   await page.locator("#findings .finding").first().locator(".finding-star").focus();

@@ -120,7 +120,10 @@ reported repository, skill, and location counts are unaffected by starring.
 A star is a per-skill mark on a stable location identity. A card counts as
 starred when any location in its duplicate group is starred, so a star survives
 a later scan that adds or removes a copy of the same contents. Starring a card
-marks its representative location.
+marks every location currently in the group; unstarring clears every current
+location. Storing all current location identities ensures that removing the
+representative copy does not discard the group's star while another copy
+remains.
 
 Stars are browser UI state, like repository enablement: they are persisted
 locally, survive reloads, and are never written to SQLite or sent to the server.
