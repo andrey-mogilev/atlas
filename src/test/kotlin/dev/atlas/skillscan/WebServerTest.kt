@@ -89,6 +89,76 @@ class WebServerTest {
         }
     }
 
+    @Test fun `organization scans are confirmed with a repository count and report progress as it happens`() {
+        val db = database
+        db.save("https://github.com/acme/saved", "https://github.com/acme/saved", "main", "a".repeat(40),
+            listOf(SkillFile("skills/saved/SKILL.md", "# Saved\n\nSaved guidance.", "Saved guidance.")))
+        val plan = OwnerPlan("acme", "Organization", "https://github.com/acme", listOf(
+            OwnerRepository("acme/saved", "https://github.com/acme/saved"),
+            OwnerRepository("acme/fresh", "https://github.com/acme/fresh"),
+            OwnerRepository("acme/broken", "https://github.com/acme/broken")), false)
+        val outcomes = listOf(
+            OwnerRepositoryOutcome("acme/saved", "https://github.com/acme/saved", OWNER_SKIPPED, 1, 1),
+            OwnerRepositoryOutcome("acme/fresh", "https://github.com/acme/fresh", OWNER_SCANNED, 2, 3),
+            OwnerRepositoryOutcome("acme/broken", "https://github.com/acme/broken", OWNER_FAILED,
+                code = 4, message = "branch not found"))
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val requestedLogins = mutableListOf<String>()
+        WebServer(0, service(db), db, ownerPlan = { login -> requestedLogins += login; plan },
+            scanOwner = { requested, rescan, onProgress ->
+                assertFalse(rescan, "the saved repository must be skipped unless a rescan was requested")
+                outcomes.forEachIndexed { index, outcome ->
+                    if (index == 1) {
+                        started.countDown()
+                        check(release.await(5, TimeUnit.SECONDS))
+                    }
+                    onProgress(outcome)
+                }
+                OwnerScanResult(requested, outcomes)
+            }).use { server ->
+            server.start()
+            val token = token(server)
+            try {
+                assertEquals("repository", data(preview(server, token, temp.toString()))["kind"])
+                val owner = data(preview(server, token, "https://github.com/acme"))
+                assertEquals("owner", owner["kind"])
+                assertEquals("Organization", owner["type"])
+                assertEquals(3, owner["repositoryCount"])
+                assertEquals(1, owner["alreadyScannedCount"])
+                assertEquals(false, owner["truncated"])
+
+                val accepted = request(server, "/api/scans", token,
+                    "target=${URLEncoder.encode("https://github.com/acme", Charsets.UTF_8)}&branch=&rescan=false")
+                assertEquals(202, accepted.statusCode(), accepted.body())
+                val id = data(accepted)["id"].toString()
+                assertTrue(started.await(5, TimeUnit.SECONDS))
+                val running = data(request(server, "/api/jobs/$id", token))
+                assertEquals("running", running["status"])
+                assertEquals("owner", running["kind"])
+                assertEquals(1, running["completed"])
+                assertEquals(1, running["skipped"])
+                assertEquals("acme/saved", ((running["repositories"] as List<*>).single() as Map<*, *>)["name"])
+                release.countDown()
+
+                val finished = completed(server, token, id)
+                assertEquals("completed", finished["status"])
+                assertEquals(listOf(1, 1, 1), listOf(finished["scanned"], finished["skipped"], finished["failed"]))
+                assertEquals(3, finished["skillCount"])
+                assertEquals(4, finished["locationCount"])
+                val failed = (finished["repositories"] as List<*>).last() as Map<*, *>
+                assertEquals("failed", failed["status"])
+                assertEquals(4, failed["code"])
+                assertEquals(listOf("acme", "acme"), requestedLogins, "the plan is read once for the preview and once for the scan")
+
+                val branched = submit(server, token, "https://github.com/acme", "main")
+                assertEquals("failed", branched["status"])
+                assertEquals(2, branched["code"])
+                assertEquals(400, request(server, "/api/scans", token, "target=x&rescan=maybe").statusCode())
+            } finally { release.countDown() }
+        }
+    }
+
     @Test fun `empty scan succeeds and failures preserve CLI codes without saved records`() {
         val empty = Files.createDirectory(temp.resolve("empty"))
         WebServer(0, service(), database).use { server ->
@@ -165,6 +235,9 @@ class WebServerTest {
             assertTrue(root.body().contains("id=\"skill-filter\""))
             assertTrue(root.body().contains("id=\"repository-selector\""))
             assertTrue(root.body().contains("href=\"/scans\""))
+            assertTrue(root.body().contains("id=\"owner-dialog\""))
+            assertTrue(root.body().contains("id=\"owner-rescan\""))
+            assertTrue(root.body().contains("id=\"owner-bar\""))
             assertEquals(200, request(server, "/scans").statusCode())
             val script = request(server, "/app.js")
             assertEquals(200, script.statusCode())
@@ -172,6 +245,8 @@ class WebServerTest {
             assertTrue(script.body().contains("finding.description.toLocaleLowerCase()"))
             assertTrue(script.body().contains("all.indeterminate"))
             assertTrue(script.body().contains("localStorage"))
+            assertTrue(script.body().contains("dialog.showModal()"))
+            assertTrue(script.body().contains("renderOwnerProgress"))
             assertEquals(200, request(server, "/style.css").statusCode())
             Socket("127.0.0.1", URI(server.origin).port).use { socket ->
                 socket.soTimeout = 3000
@@ -242,6 +317,12 @@ class WebServerTest {
     }
 
     private fun data(response: HttpResponse<String>): Map<String, Any?> = Yaml().load(response.body())
+
+    private fun preview(server: WebServer, token: String, target: String): HttpResponse<String> {
+        val response = request(server, "/api/targets", token, "target=${URLEncoder.encode(target, Charsets.UTF_8)}")
+        assertEquals(200, response.statusCode(), response.body())
+        return response
+    }
 
     private fun submit(server: WebServer, token: String, target: String, branch: String = ""): Map<String, Any?> {
         val response = request(server, "/api/scans", token,

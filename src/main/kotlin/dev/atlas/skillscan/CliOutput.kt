@@ -8,6 +8,10 @@ internal const val CLI_HELP = """Usage: skill-atlas scan <repository-url-or-fold
 
 Scan options (before or after the target):
   --branch <name>             Scan a named branch
+  --scan-organizations       Allow a GitHub user or organization URL and scan every
+                             repository it owns (also accepted as -scan-organizations)
+  --rescan                   With --scan-organizations, scan repositories that were
+                             already scanned instead of reporting the saved results
   --verbose                  Show full commit, location IDs and source URLs
   --json                     Emit one JSON object without terminal formatting
   --color auto|always|never   Color mode (default: auto; NO_COLOR disables auto)
@@ -15,7 +19,8 @@ Scan options (before or after the target):
 
 Descriptions wrap to COLUMNS (default 80). Interactive selection is not supported."""
 
-internal data class ScanOptions(val target: String, val branch: String?, val verbose: Boolean, val json: Boolean, val color: String)
+internal data class ScanOptions(val target: String, val branch: String?, val verbose: Boolean, val json: Boolean,
+                                val color: String, val scanOwners: Boolean = false, val rescan: Boolean = false)
 
 internal fun parseScanOptions(args: Array<String>): ScanOptions {
     fun invalid(message: String): Nothing = throw ScanFailure(2, "$message; use 'skill-atlas scan --help'")
@@ -26,9 +31,13 @@ internal fun parseScanOptions(args: Array<String>): ScanOptions {
     val seen = mutableSetOf<String>()
     var i = 1
     while (i < args.size) {
-        val arg = args[i++]
-        if (arg.startsWith('-')) {
-            if (arg !in setOf("--branch", "--verbose", "--json", "--color")) invalid("unknown option: $arg")
+        val raw = args[i++]
+        if (raw.startsWith('-')) {
+            // The issue that requested organization scanning spelled the option with one leading dash.
+            val arg = if (raw == "-scan-organizations") "--scan-organizations" else raw
+            if (arg !in setOf("--branch", "--verbose", "--json", "--color", "--scan-organizations", "--rescan")) {
+                invalid("unknown option: $raw")
+            }
             if (!seen.add(arg)) invalid("duplicate option: $arg")
             if (arg == "--branch" || arg == "--color") {
                 val value = args.getOrNull(i++)?.takeIf { it.isNotBlank() && !it.startsWith('-') }
@@ -41,11 +50,16 @@ internal fun parseScanOptions(args: Array<String>): ScanOptions {
             }
         } else {
             if (target != null) invalid("expected only one scan target")
-            target = arg
+            target = raw
         }
     }
     if ("--verbose" in seen && "--json" in seen) invalid("--verbose and --json cannot be combined")
-    return ScanOptions(target ?: invalid("missing scan target"), branch, "--verbose" in seen, "--json" in seen, color)
+    if ("--rescan" in seen && "--scan-organizations" !in seen) invalid("--rescan requires --scan-organizations")
+    if ("--branch" in seen && "--scan-organizations" in seen) {
+        invalid("--branch cannot be combined with --scan-organizations; every repository uses its own default branch")
+    }
+    return ScanOptions(target ?: invalid("missing scan target"), branch, "--verbose" in seen, "--json" in seen, color,
+        "--scan-organizations" in seen, "--rescan" in seen)
 }
 
 internal data class CliPresentation(val color: Boolean, val hyperlinks: Boolean, val width: Int) {
@@ -123,6 +137,66 @@ private fun terminalLink(finding: Finding, label: String): String {
     if (target.any { it.isISOControl() }) return label
     return "\u001b]8;;$target\u001b\\$label\u001b]8;;\u001b\\"
 }
+
+private fun plural(count: Int, singular: String, many: String): String = "$count ${if (count == 1) singular else many}"
+
+private fun OwnerRepositoryOutcome.counts(): String =
+    plural(skillCount, "skill", "skills") + " across " + plural(locationCount, "location", "locations")
+
+internal fun formatOwner(result: OwnerScanResult, style: CliPresentation, verbose: Boolean): String {
+    val plan = result.plan
+    val owner = "${plan.login.safeLine()} (${plan.type.lowercase().safeLine()})"
+    if (plan.repositories.isEmpty()) return "No repositories are visible in $owner."
+    val heading = "Scanned ${result.scanned.size} of ${plural(plan.repositories.size, "repository", "repositories")} in $owner"
+    val totals = plural(result.skillCount, "skill", "skills") + " across " +
+        plural(result.locationCount, "location", "locations") + " in " +
+        plural(result.scanned.size + result.skipped.size, "repository", "repositories")
+    fun entries(outcomes: List<OwnerRepositoryOutcome>, numbered: Boolean, detail: (OwnerRepositoryOutcome) -> String) =
+        outcomes.mapIndexed { index, outcome ->
+            val label = if (numbered) style.paint("36", "${index + 1}.") + " " else "   "
+            val link = if (verbose) "\n      " + style.paint("2", outcome.url.safeLine()) else ""
+            label + style.paint("1", outcome.fullName.safeLine()) + "  " + style.paint("2", detail(outcome)) + link
+        }.joinToString("\n")
+    val sections = mutableListOf(style.paint("1;36", heading) + "\n" + style.paint("2", totals))
+    if (result.scanned.isNotEmpty()) sections += entries(result.scanned, true) { it.counts() }
+    if (result.skipped.isNotEmpty()) {
+        sections += "Reported ${plural(result.skipped.size, "already scanned repository", "already scanned repositories")} " +
+            "from saved results; add --rescan to scan them again:\n" + entries(result.skipped, false) { it.counts() }
+    }
+    if (result.failed.isNotEmpty()) {
+        sections += style.paint("31", plural(result.failed.size, "repository", "repositories") + " could not be scanned:") +
+            "\n" + entries(result.failed, false) { "code ${it.code}: ${(it.message ?: "").safeLine()}" }
+    }
+    if (plan.truncated) {
+        sections += "Only the first ${plan.repositories.size} repositories were considered; " +
+            "raise SKILL_SCAN_MAX_OWNER_REPOSITORIES to include more."
+    }
+    return sections.joinToString("\n\n")
+}
+
+internal fun formatOwnerJson(result: OwnerScanResult): String = json(linkedMapOf(
+    "schemaVersion" to 1,
+    "kind" to "owner",
+    "owner" to result.plan.login,
+    "ownerType" to result.plan.type,
+    "target" to result.plan.url,
+    "repositoryCount" to result.plan.repositories.size,
+    "truncated" to result.plan.truncated,
+    "scannedCount" to result.scanned.size,
+    "skippedCount" to result.skipped.size,
+    "failedCount" to result.failed.size,
+    "skillCount" to result.skillCount,
+    "locationCount" to result.locationCount,
+    "repositories" to result.outcomes.map { outcome ->
+        linkedMapOf<String, Any?>(
+            "name" to outcome.fullName,
+            "target" to outcome.url,
+            "status" to outcome.status,
+            "skillCount" to outcome.skillCount,
+            "locationCount" to outcome.locationCount
+        ).apply { if (outcome.code != null) { put("code", outcome.code); put("message", outcome.message) } }
+    }
+))
 
 internal fun formatJson(result: ScanResult): String = json(linkedMapOf(
     "schemaVersion" to 1,

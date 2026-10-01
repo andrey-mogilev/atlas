@@ -92,6 +92,43 @@ skill-atlas scan ./example-skills --color never
 skill-atlas scan --help
 ```
 
+## Scanning a whole user or organization
+
+A GitHub URL with only an account name, such as
+`https://github.com/andrey-mogilev`, names a user or an organization rather than
+a repository. The CLI refuses such a target with exit code 2 until
+`--scan-organizations` is supplied, so a single missing path segment never
+starts a long unattended scan.
+
+```sh
+skill-atlas scan https://github.com/andrey-mogilev --scan-organizations
+skill-atlas scan https://github.com/andrey-mogilev --scan-organizations --rescan
+skill-atlas scan https://github.com/andrey-mogilev --scan-organizations --json
+```
+
+The option is also accepted as `-scan-organizations`. Repositories are listed
+through the GitHub REST API and scanned one at a time, each on its own default
+branch; `--branch` cannot be combined with `--scan-organizations`. A repository
+that already has saved results is reported from storage instead of being
+scanned again — add `--rescan` to refresh it. A repository that cannot be
+scanned, for example one with no commits, is reported with its usual error code
+and does not stop the remaining repositories; the command then exits 1.
+
+Set `SKILL_SCAN_GITHUB_TOKEN`, or `GITHUB_TOKEN`, to include private
+repositories and to raise the GitHub API rate limit. The token is only sent to
+`api.github.com` and is never stored or printed. `SKILL_SCAN_MAX_OWNER_REPOSITORIES`
+bounds how many repositories one organization scan considers; it defaults to 500
+and a truncated listing is reported.
+
+In the web interface, submitting such a URL first shows a dialog with the number
+of repositories, a warning that the scan may take a long time, how many already
+have saved results, and a **Rescan repositories that were already scanned**
+checkbox that is cleared by default. After confirmation the Scans page shows a
+progress bar and a per-repository list, and saved scans, repositories, and
+skills appear as soon as each repository finishes. Cancelling the dialog starts
+nothing. See [.spec/organization-scan.md](.spec/organization-scan.md) for the
+full contract.
+
 `--verbose` preserves the detailed plain-text format: full commit, per-location
 IDs and source URLs, and “Also found at” paths. `--json` emits a versioned object
 with full metadata and every location; it cannot be combined with `--verbose`.
@@ -124,7 +161,10 @@ for Git repositories. HTTPS and SSH URLs remain separate repository identities
 in the local database.
 
 GitHub repository URLs work with or without a `.git` suffix, for example
-`https://github.com/andrey-mogilev/atlas-test`. You can also paste a complete
+`https://github.com/andrey-mogilev/atlas-test`. A URL with only an account name
+is a user or organization rather than a repository; see
+[Scanning a whole user or organization](#scanning-a-whole-user-or-organization).
+You can also paste a complete
 Markdown link such as `[Atlas test](https://github.com/andrey-mogilev/atlas-test)`
 into the web input (or pass it as one quoted CLI argument). The link resolves to
 the same repository identity as its URL.
@@ -140,6 +180,8 @@ branch, content, and validation failures do not trigger a fallback.
 See [.spec/readme.md](.spec/readme.md) for the command contract.
 The repository-oriented web experience is defined in
 [.spec/multi-repository-web.md](.spec/multi-repository-web.md).
+Scanning every repository of a GitHub user or organization is defined in
+[.spec/organization-scan.md](.spec/organization-scan.md).
 
 ## Duplicate skills
 
@@ -207,6 +249,10 @@ uses smoothed TF-IDF cosine similarity over normalized names and descriptions,
 with name terms included twice and common English filler words omitted. It is a
 local, deterministic relevance hint rather than a semantic-equivalence claim;
 skills with different vocabulary can score low even when their purposes overlap.
+
+A GitHub URL that names only an account scans that user's or organization's
+repositories after an explicit confirmation; see
+[Scanning a whole user or organization](#scanning-a-whole-user-or-organization).
 
 The **Scans** page contains the scan form and latest 50 distinct saved scans,
 including CLI scans. History is grouped by repository with the latest scan

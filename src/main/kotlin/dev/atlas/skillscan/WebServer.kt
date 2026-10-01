@@ -47,6 +47,8 @@ internal class WebServer(
     port: Int,
     private val service: ScanService,
     private val database: SkillDatabase,
+    private val ownerPlan: (String) -> OwnerPlan = service::ownerPlan,
+    private val scanOwner: (OwnerPlan, Boolean, (OwnerRepositoryOutcome) -> Unit) -> OwnerScanResult = service::scanOwner,
     private val scan: (String, String?) -> ScanResult = service::scan
 ) : AutoCloseable {
     private val server = HttpServer.create(InetSocketAddress("127.0.0.1", port), 16)
@@ -109,21 +111,33 @@ internal class WebServer(
                 send(exchange, 200, if (path.endsWith(".js")) "text/javascript; charset=utf-8" else "text/css; charset=utf-8",
                     resource(path.removePrefix("/")))
             }
+            path == "/api/targets" -> {
+                requireMethod(exchange, "POST")
+                val fields = formFields(exchange, setOf("target"))
+                val target = fields["target"] ?: throw WebFailure(400, "Repository or folder is required")
+                // Target validation stays with the scan job so repository errors keep their existing shape.
+                val login = runCatching { githubOwner(scanTarget(target).canonical) }.getOrNull()
+                if (login == null) respond(exchange, 200, mapOf("kind" to "repository"))
+                else {
+                    val plan = ownerPlan(login)
+                    val known = database.repositories().map { it.canonicalTarget }.toSet()
+                    respond(exchange, 200, mapOf("kind" to "owner", "login" to plan.login, "type" to plan.type,
+                        "target" to plan.url, "repositoryCount" to plan.repositories.size,
+                        "alreadyScannedCount" to plan.repositories.count { it.url in known },
+                        "truncated" to plan.truncated))
+                }
+            }
             path == "/api/scans" -> {
                 requireMethod(exchange, "POST")
-                val contentType = exchange.requestHeaders.getFirst("Content-Type")?.substringBefore(';')
-                if (contentType != "application/x-www-form-urlencoded") throw WebFailure(415, "Expected form data")
-                val bytes = exchange.requestBody.readNBytes(8193)
-                if (bytes.size > 8192) throw WebFailure(413, "Scan request is too large")
-                val fields = try {
-                    bytes.toString(UTF_8).split('&').associate {
-                        URLDecoder.decode(it.substringBefore('='), UTF_8) to URLDecoder.decode(it.substringAfter('=', ""), UTF_8)
-                    }
-                } catch (_: IllegalArgumentException) { throw WebFailure(400, "Invalid form data") }
-                if (fields.keys.any { it !in setOf("target", "branch") }) throw WebFailure(400, "Unknown scan field")
+                val fields = formFields(exchange, setOf("target", "branch", "rescan"))
                 val target = fields["target"] ?: throw WebFailure(400, "Repository or folder is required")
                 val branch = fields["branch"]?.takeUnless { it.isEmpty() }
-                val id = submit(target, branch)
+                val rescan = when (fields["rescan"] ?: "false") {
+                    "true" -> true
+                    "false" -> false
+                    else -> throw WebFailure(400, "Invalid rescan selection")
+                }
+                val id = submit(target, branch, rescan)
                 respond(exchange, 202, mapOf("id" to id, "status" to "running"))
             }
             path.startsWith("/api/jobs/") -> {
@@ -168,7 +182,21 @@ internal class WebServer(
         }
     }
 
-    @Synchronized private fun submit(target: String, branch: String?): String {
+    private fun formFields(exchange: HttpExchange, allowed: Set<String>): Map<String, String> {
+        val contentType = exchange.requestHeaders.getFirst("Content-Type")?.substringBefore(';')
+        if (contentType != "application/x-www-form-urlencoded") throw WebFailure(415, "Expected form data")
+        val bytes = exchange.requestBody.readNBytes(8193)
+        if (bytes.size > 8192) throw WebFailure(413, "Scan request is too large")
+        val fields = try {
+            bytes.toString(UTF_8).split('&').associate {
+                URLDecoder.decode(it.substringBefore('='), UTF_8) to URLDecoder.decode(it.substringAfter('=', ""), UTF_8)
+            }
+        } catch (_: IllegalArgumentException) { throw WebFailure(400, "Invalid form data") }
+        if (fields.keys.any { it !in allowed }) throw WebFailure(400, "Unknown scan field")
+        return fields
+    }
+
+    @Synchronized private fun submit(target: String, branch: String?, rescan: Boolean): String {
         if (busy) throw WebFailure(409, "A scan is already running. Wait for it to finish, then try again.")
         if (closed) throw WebFailure(503, "Server is stopping")
         val id = UUID.randomUUID().toString()
@@ -177,7 +205,9 @@ internal class WebServer(
         busy = true
         worker.submit {
             val response = try {
-                mapOf("id" to id, "status" to "completed", "result" to scan(target, branch).webResult())
+                val login = runCatching { githubOwner(scanTarget(target).canonical) }.getOrNull()
+                if (login == null) mapOf("id" to id, "status" to "completed", "result" to scan(target, branch).webResult())
+                else runOwnerScan(id, login, branch, rescan)
             } catch (e: ScanFailure) {
                 mapOf("id" to id, "status" to "failed", "code" to e.exitCode, "message" to e.message)
             } catch (_: Exception) {
@@ -186,6 +216,34 @@ internal class WebServer(
             synchronized(this) { jobs[id] = response; busy = false }
         }
         return id
+    }
+
+    /** Publishes a consistent snapshot after every repository so the page can show progress as it happens. */
+    private fun runOwnerScan(id: String, login: String, branch: String?, rescan: Boolean): Map<String, Any?> {
+        if (branch != null) throw ScanFailure(2, "a branch cannot be applied to a user or organization scan")
+        val plan = ownerPlan(login)
+        val progress = mutableListOf<Map<String, Any?>>()
+        fun snapshot(status: String): Map<String, Any?> = mapOf(
+            "id" to id, "status" to status, "kind" to "owner", "login" to plan.login, "type" to plan.type,
+            "target" to plan.url, "total" to plan.repositories.size, "truncated" to plan.truncated, "rescan" to rescan,
+            "completed" to progress.size,
+            "scanned" to progress.count { it["status"] == OWNER_SCANNED },
+            "skipped" to progress.count { it["status"] == OWNER_SKIPPED },
+            "failed" to progress.count { it["status"] == OWNER_FAILED },
+            "skillCount" to progress.sumOf { it["skillCount"] as Int },
+            "locationCount" to progress.sumOf { it["locationCount"] as Int },
+            "repositories" to progress.toList()
+        )
+        publish(id, snapshot("running"))
+        scanOwner(plan, rescan) { outcome ->
+            progress += outcome.webOutcome()
+            publish(id, snapshot("running"))
+        }
+        return snapshot("completed")
+    }
+
+    @Synchronized private fun publish(id: String, job: Map<String, Any?>) {
+        if (jobs.containsKey(id)) jobs[id] = job
     }
 
     private fun requireMethod(exchange: HttpExchange, method: String) {
@@ -241,6 +299,11 @@ private fun StoredRepository.webSummary(): Map<String, Any?> = mapOf(
 )
 
 private class WebFailure(val status: Int, message: String) : RuntimeException(message)
+
+private fun OwnerRepositoryOutcome.webOutcome(): Map<String, Any?> = mapOf(
+    "name" to fullName, "target" to url, "status" to status,
+    "skillCount" to skillCount, "locationCount" to locationCount
+) + if (code == null) emptyMap() else mapOf("code" to code, "message" to message)
 
 private fun ScanResult.webResult(): Map<String, Any?> = mapOf(
     "target" to requestedTarget, "branch" to snapshot.branch, "commit" to snapshot.commit,

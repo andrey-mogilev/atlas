@@ -27,7 +27,16 @@ internal fun runCli(args: Array<String>, environment: Map<String, String> = Syst
         }
         val options = parseScanOptions(args)
         presentation = CliPresentation.fromEnvironment(environment, options.color, machineReadable = options.json)
-        val result = ScanService.fromEnvironment(environment).scan(options.target, options.branch)
+        val service = ScanService.fromEnvironment(environment)
+        val owner = githubOwner(scanTarget(options.target).canonical)
+        if (owner != null) {
+            if (!options.scanOwners) throw ScanFailure(2, "${options.target} identifies a GitHub user or organization, " +
+                "not a repository; add --scan-organizations to scan every repository it owns")
+            val owned = service.scanOwner(service.ownerPlan(owner), options.rescan)
+            println(if (options.json) formatOwnerJson(owned) else formatOwner(owned, presentation, options.verbose))
+            return if (owned.failed.isEmpty()) 0 else 1
+        }
+        val result = service.scan(options.target, options.branch)
         println(when {
             options.json -> formatJson(result)
             options.verbose -> formatFindings(result.snapshot, result.findings)
@@ -45,7 +54,34 @@ internal fun runCli(args: Array<String>, environment: Map<String, String> = Syst
 
 internal data class ScanResult(val requestedTarget: String, val canonicalTarget: String, val snapshot: Snapshot, val findings: List<Finding>)
 
-internal class ScanService(private val database: SkillDatabase, private val maxFileBytes: Long, private val maxTotalBytes: Long) {
+internal const val OWNER_SCANNED = "scanned"
+internal const val OWNER_SKIPPED = "skipped"
+internal const val OWNER_FAILED = "failed"
+
+internal data class OwnerRepositoryOutcome(
+    val fullName: String,
+    val url: String,
+    val status: String,
+    val skillCount: Int = 0,
+    val locationCount: Int = 0,
+    val code: Int? = null,
+    val message: String? = null
+)
+
+internal data class OwnerScanResult(val plan: OwnerPlan, val outcomes: List<OwnerRepositoryOutcome>) {
+    val scanned: List<OwnerRepositoryOutcome> get() = outcomes.filter { it.status == OWNER_SCANNED }
+    val skipped: List<OwnerRepositoryOutcome> get() = outcomes.filter { it.status == OWNER_SKIPPED }
+    val failed: List<OwnerRepositoryOutcome> get() = outcomes.filter { it.status == OWNER_FAILED }
+    val skillCount: Int get() = outcomes.sumOf { it.skillCount }
+    val locationCount: Int get() = outcomes.sumOf { it.locationCount }
+}
+
+internal class ScanService(
+    private val database: SkillDatabase,
+    private val maxFileBytes: Long,
+    private val maxTotalBytes: Long,
+    private val github: GitHubApi = GitHubApi()
+) {
     fun scan(requestedTarget: String, branch: String?): ScanResult {
         val target = scanTarget(requestedTarget)
         val scanner = GitScanner(maxFileBytes, maxTotalBytes)
@@ -55,14 +91,57 @@ internal class ScanService(private val database: SkillDatabase, private val maxF
         return ScanResult(requestedTarget, target.canonical, snapshot, findings)
     }
 
+    fun ownerPlan(login: String): OwnerPlan = github.plan(login)
+
+    /** Repositories already saved locally are reported from storage unless a rescan was requested. */
+    fun scanOwner(plan: OwnerPlan, rescan: Boolean, onProgress: (OwnerRepositoryOutcome) -> Unit = {}): OwnerScanResult =
+        scanOwnedRepositories(plan, if (rescan) emptyMap() else database.repositories().associateBy { it.canonicalTarget },
+            { url -> scan(url, null) }, onProgress)
+
     companion object {
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): ScanService = ScanService(
             SkillDatabase(databasePath(environment)),
             positiveLimit("SKILL_SCAN_MAX_FILE_BYTES", 1_048_576, environment),
-            positiveLimit("SKILL_SCAN_MAX_TOTAL_BYTES", 10_485_760, environment)
+            positiveLimit("SKILL_SCAN_MAX_TOTAL_BYTES", 10_485_760, environment),
+            GitHubApi(githubToken(environment), ownerRepositoryLimit(environment))
         )
     }
 }
+
+/** One repository failure is reported for that repository alone and never abandons the remaining ones. */
+internal fun scanOwnedRepositories(
+    plan: OwnerPlan,
+    previous: Map<String, StoredRepository>,
+    scan: (String) -> ScanResult,
+    onProgress: (OwnerRepositoryOutcome) -> Unit = {}
+): OwnerScanResult {
+    val outcomes = mutableListOf<OwnerRepositoryOutcome>()
+    for (repository in plan.repositories) {
+        if (Thread.currentThread().isInterrupted) throw ScanFailure(1, "organization scan was interrupted")
+        val stored = previous[repository.url]
+        val outcome = if (stored != null) {
+            OwnerRepositoryOutcome(repository.fullName, repository.url, OWNER_SKIPPED, stored.skillCount, stored.locationCount)
+        } else try {
+            val result = scan(repository.url)
+            OwnerRepositoryOutcome(repository.fullName, repository.url, OWNER_SCANNED,
+                groupFindings(result.findings).size, result.findings.size)
+        } catch (failure: ScanFailure) {
+            OwnerRepositoryOutcome(repository.fullName, repository.url, OWNER_FAILED,
+                code = failure.exitCode, message = failure.message ?: "repository scan failed")
+        }
+        outcomes += outcome
+        onProgress(outcome)
+    }
+    return OwnerScanResult(plan, outcomes)
+}
+
+internal fun githubToken(environment: Map<String, String>): String? =
+    environment["SKILL_SCAN_GITHUB_TOKEN"]?.takeUnless { it.isBlank() }
+        ?: environment["GITHUB_TOKEN"]?.takeUnless { it.isBlank() }
+
+internal fun ownerRepositoryLimit(environment: Map<String, String>): Int =
+    positiveLimit("SKILL_SCAN_MAX_OWNER_REPOSITORIES", DEFAULT_MAX_OWNER_REPOSITORIES.toLong(), environment)
+        .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
 internal data class ScanTarget(val canonical: String, val localDirectory: Path?)
 
