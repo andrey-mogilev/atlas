@@ -33,7 +33,12 @@ to direct the viewer to important controls and results.
 
 The current walkthrough records an organization scan against the public GitHub
 account declared in `tests/ui-demo.scenario.js`, so recording it needs network
-access to `api.github.com` and to the account's repositories.
+access to `api.github.com` and to the account's repositories. It spends about a
+dozen GitHub API calls per run; if the unauthenticated limit of 60 calls an hour
+is exhausted the confirmation dialog never opens and the walkthrough fails on
+`#owner-dialog`. Check `https://api.github.com/rate_limit`, or set
+`SKILL_SCAN_GITHUB_TOKEN`, before re-recording — but only with a token whose
+account has no private repositories to leak into the recording.
 
 Install the test dependency, Playwright Chromium, and its video encoder once,
 then record the current scenario:

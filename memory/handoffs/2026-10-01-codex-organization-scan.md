@@ -58,6 +58,14 @@ from Google's bucket, so a demo can still be recorded there:
 - `/dev/shm` is 64 MB, which crashes the renderer; pass
   `--disable-dev-shm-usage`. Supply it from a config file outside the
   repository rather than committing an environment-specific launch option.
+- Maven needs `~/.m2/settings.xml` with the proxy from `JAVA_TOOL_OPTIONS`, and
+  the JVM needs `JAVA_TOOL_OPTIONS` itself to reach `api.github.com`. Only
+  unset it for `mvn verify`, whose CLI assertions the "Picked up …" line breaks.
+
+The walkthrough spends about a dozen GitHub API calls per run and will fail on
+`#owner-dialog` once the unauthenticated limit of 60 an hour is exhausted;
+`https://api.github.com/rate_limit` tells you when it resets. This is not a
+product defect, and it is why repeated re-recordings need spacing.
 
 Because the fonts differ from the GitHub runner's, `npm run test:visual` fails
 locally on text metrics alone — the layout matches pixel for pixel. CI's
