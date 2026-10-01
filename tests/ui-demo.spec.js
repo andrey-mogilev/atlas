@@ -6,8 +6,7 @@ const {test, expect} = require("@playwright/test");
 const scenario = require("./ui-demo.scenario");
 
 const repositoryRoot = path.resolve(__dirname, "..");
-const demoRoot = path.join(os.tmpdir(), "atlas-multi-repository-demo");
-const demoSources = [path.join(demoRoot, "atlas-guides"), path.join(demoRoot, "team-playbooks")];
+const demos = path.join(repositoryRoot, "demos");
 const demoDatabase = path.join(os.tmpdir(), "atlas-playwright-demo.sqlite");
 
 function artifactPrefix() {
@@ -99,6 +98,24 @@ async function installRecordingStyles(context, page) {
   });
 }
 
+/**
+ * A modal dialog renders in the browser's top layer, above every z-index, so
+ * the recording cursor has to live inside the dialog while it is open.
+ */
+async function hostOverlays(page, selector) {
+  await page.evaluate(selector => {
+    const host = selector ? document.querySelector(selector) : document.body;
+    const cursor = document.querySelector(".demo-cursor");
+    const ripple = document.querySelector(".demo-click");
+    host.append(cursor, ripple);
+    // Re-parenting drops the running animation that holds the cursor in place.
+    cursor.animate(
+      [{transform: `translate(${cursor.dataset.x}px, ${cursor.dataset.y}px)`}],
+      {duration: 1, fill: "forwards"}
+    );
+  }, selector);
+}
+
 async function moveCursor(page, x, y) {
   await page.evaluate(async ({x, y}) => {
     const cursor = document.querySelector(".demo-cursor");
@@ -153,76 +170,107 @@ async function click(page, target) {
 }
 
 test(`records the ${scenario.name}`, async ({page, context}) => {
-  const demos = "/Users/andrey.mogilev/Projects/Videos";
   const prefix = artifactPrefix();
   await fs.mkdir(demos, {recursive: true});
-  await fs.rm(demoRoot, {recursive: true, force: true});
   await fs.rm(demoDatabase, {force: true});
-  for (const source of demoSources) await fs.cp(path.join(__dirname, scenario.sourceFixture), source, {recursive: true});
   await page.goto("/scans");
   await installRecordingStyles(context, page);
   await page.waitForTimeout(1_400);
 
-  for (const source of demoSources) {
-    let target = await focus(page, "#target", 450);
-    await click(page, target);
-    await target.item.pressSequentially(source, {delay: 80});
-    await page.waitForTimeout(700);
-    target = await focus(page, "#scan-button", 550);
-    await click(page, target);
-    await expect(page.locator("#status")).toHaveText("Scan complete. Results saved on this computer.", {timeout: 60_000});
-    await page.locator("#target").fill("");
-  }
+  // A GitHub URL with only an account name is now recognised as an owner.
+  let target = await focus(page, "#target", 450);
+  await click(page, target);
+  await target.item.pressSequentially(scenario.owner, {delay: 90});
+  await page.waitForTimeout(800);
+  target = await focus(page, "#scan-button", 550);
+  await click(page, target);
 
-  let target = await focus(page, "#skills-nav", 700);
+  const dialog = page.locator("#owner-dialog");
+  await expect(dialog).toBeVisible();
+  await hostOverlays(page, "#owner-dialog");
+  await focus(page, "#owner-dialog-text", 1_700);
+  await captureMoment(page, demos, prefix, "confirmation");
+  const announced = await page.locator("#owner-dialog-text").textContent();
+  const repositoryCount = Number(/owns (\d+) repositor/.exec(announced)[1]);
+  expect(repositoryCount).toBeGreaterThan(0);
+  await expect(page.locator("#owner-dialog-known")).toHaveText("None of them have saved results yet.");
+  await focus(page, "#owner-dialog-known", 1_200);
+  await focus(page, ".owner-rescan-check", 1_300);
+  await expect(page.locator("#owner-rescan")).not.toBeChecked();
+  target = await focus(page, "#owner-start", 600);
+  await click(page, target);
+  await expect(dialog).toBeHidden();
+  await hostOverlays(page, null);
+
+  // Every repository is reported as it finishes, behind a determinate bar.
+  await expect(page.locator("#owner-progress")).toBeVisible();
+  await expect(page.locator(".owner-repository").first()).toBeVisible({timeout: 300_000});
+  await captureMoment(page, demos, prefix, "progress");
+  await focus(page, "#owner-progress", 900);
+  await expect(page.locator("#status")).toHaveText(
+    new RegExp(`Organization scan complete: ${repositoryCount} scanned, 0 already scanned`),
+    {timeout: 300_000}
+  );
+  await expect(page.locator(".owner-repository")).toHaveCount(repositoryCount);
+  await focus(page, "#owner-progress", 2_000);
+  await captureMoment(page, demos, prefix, "completed");
+  await expect(page.locator(".history-group")).toHaveCount(repositoryCount);
+
+  // Submitting the same account again reports the saved results instead of
+  // scanning, because the rescan checkbox is cleared by default.
+  target = await focus(page, "#scan-button", 700);
+  await click(page, target);
+  await expect(dialog).toBeVisible();
+  await hostOverlays(page, "#owner-dialog");
+  await expect(page.locator("#owner-dialog-known")).toHaveText(
+    `${repositoryCount} of them already have saved results.`
+  );
+  await focus(page, "#owner-dialog-known", 1_600);
+  await captureMoment(page, demos, prefix, "alreadyScanned");
+  await expect(page.locator("#owner-rescan")).not.toBeChecked();
+  target = await focus(page, "#owner-start", 600);
+  await click(page, target);
+  await expect(dialog).toBeHidden();
+  await hostOverlays(page, null);
+  await expect(page.locator("#status")).toHaveText(
+    new RegExp(`Organization scan complete: 0 scanned, ${repositoryCount} already scanned`),
+    {timeout: 300_000}
+  );
+  await focus(page, "#owner-progress", 1_700);
+  await captureMoment(page, demos, prefix, "skipped");
+
+  // Ticking the checkbox scans the same repositories again.
+  target = await focus(page, "#scan-button", 650);
+  await click(page, target);
+  await expect(dialog).toBeVisible();
+  await hostOverlays(page, "#owner-dialog");
+  target = await focus(page, ".owner-rescan-check", 900);
+  await click(page, target);
+  await expect(page.locator("#owner-rescan")).toBeChecked();
+  await page.waitForTimeout(1_100);
+  target = await focus(page, "#owner-start", 600);
+  await click(page, target);
+  await expect(dialog).toBeHidden();
+  await hostOverlays(page, null);
+  await expect(page.locator("#status")).toHaveText(
+    new RegExp(`Organization scan complete: ${repositoryCount} scanned, 0 already scanned`),
+    {timeout: 300_000}
+  );
+  await focus(page, "#owner-progress", 1_800);
+  await captureMoment(page, demos, prefix, "rescanned");
+
+  // The skills the owner scan saved are available on the Skills page.
+  target = await focus(page, "#skills-nav", 700);
   await click(page, target);
   await installRecordingStyles(context, page);
-  await expect(page.locator(".repository-row")).toHaveCount(2);
-  await expect(page.locator(".finding")).toHaveCount(6);
-  await focus(page, "#repository-selector", 1_500);
-  await captureMoment(page, demos, prefix, "repositoriesLoaded");
-
-  target = await focus(page, ".repository-row input", 700);
-  await click(page, target);
-  await expect(page.locator("#all-repositories")).not.toBeChecked();
-  await expect(page.locator(".finding")).toHaveCount(3);
-  await page.waitForTimeout(1_400);
-  await captureMoment(page, demos, prefix, "partialSelection");
-  await click(page, target);
-  await expect(page.locator(".finding")).toHaveCount(6);
-  await page.waitForTimeout(800);
-
-  const lastCard = page.locator("#findings .finding").last();
-  const lastName = await lastCard.locator(".finding-name").textContent();
-  target = await focus(page, lastCard.locator(".finding-star"), 900);
-  await click(page, target);
-  const firstStar = page.locator("#findings .finding").first().locator(".finding-star");
-  await expect(firstStar).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("#findings .finding").first().locator(".finding-name")).toHaveText(lastName);
-  await focus(page, "#findings .finding", 1_900);
-  await captureMoment(page, demos, prefix, "skillStarred");
-  await page.waitForTimeout(700);
-
-  target = await focus(page, "#skill-filter", 650);
-  await click(page, target);
-  await target.item.pressSequentially(scenario.filter, {delay: 115});
-  await expect(page.locator("#filter-summary")).toHaveText(scenario.expectedFilterSummary);
-  await page.waitForTimeout(1_800);
-  await captureMoment(page, demos, prefix, "filterApplied");
-  await target.item.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
-  await target.item.press("Backspace");
-  await page.waitForTimeout(900);
-
-  target = await focus(page, ".finding-select", 900);
-  await click(page, target);
-  await expect(page.locator("#similarity-panel")).toBeVisible();
-  await expect(page.locator(".similarity-repository", {hasText: "team-playbooks"}).first()).toBeVisible();
-  await focus(page, "#similarity-panel", 2_200);
-  await captureMoment(page, demos, prefix, "relatedOpened");
+  await expect(page.locator(".repository-row")).toHaveCount(repositoryCount);
+  await expect(page.locator(".finding").first()).toBeVisible();
+  await focus(page, "#repository-selector", 2_200);
+  await captureMoment(page, demos, prefix, "skills");
   await page.locator(".demo-focus").evaluateAll(nodes => {
     nodes.forEach(node => node.classList.remove("demo-focus"));
   });
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(900);
 
   const video = page.video();
   await page.close();
