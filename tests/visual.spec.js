@@ -55,6 +55,14 @@ test("core pages match their reviewed visual baselines", async ({page}) => {
   await stabilizeGeneratedValues(page);
   await expect.soft(page).toHaveScreenshot("skills-populated.png", {fullPage: true});
 
+  await page.locator("#findings .finding").nth(3).locator(".finding-star").click();
+  await page.mouse.move(0, 0);
+  await stabilizeGeneratedValues(page);
+  await expect.soft(page).toHaveScreenshot("skills-starred.png", {fullPage: true});
+  await page.locator("#findings .finding").first().locator(".finding-star").click();
+  await page.mouse.move(0, 0);
+  await stabilizeGeneratedValues(page);
+
   await page.setViewportSize({width: 390, height: 844});
   await expect.soft(page.locator("body")).toHaveScreenshot("skills-mobile.png");
 });

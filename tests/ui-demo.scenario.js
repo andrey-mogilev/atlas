@@ -6,6 +6,7 @@ module.exports = {
   screenshots: {
     repositoriesLoaded: "repositories",
     partialSelection: "partial-selection",
+    skillStarred: "starred",
     filterApplied: "filtered",
     relatedOpened: "related"
   }

@@ -104,6 +104,36 @@ The verbose CLI-text view is scan-specific and is not synthesized for a
 multi-repository corpus. It remains available when inspecting an individual
 scan on the Scans page.
 
+### Starred skills
+
+Every skill card on Skills carries a star control that marks that skill as
+starred. The control is a toggle: it stars an unstarred skill and unstars a
+starred one, at any time, without a page reload or rescan. It reports its
+current state and names the skill and repository it belongs to, so the same
+skill in two repositories is starred independently.
+
+Starred skills are listed before unstarred skills. Within each of those two
+groups the deterministic ordering in this section still applies, so starring
+reorders the list without otherwise disturbing repository or path order. The
+reported repository, skill, and location counts are unaffected by starring.
+
+A star is a per-skill mark on a stable location identity. A card counts as
+starred when any location in its duplicate group is starred, so a star survives
+a later scan that adds or removes a copy of the same contents. Starring a card
+marks its representative location.
+
+Stars are browser UI state, like repository enablement: they are persisted
+locally, survive reloads, and are never written to SQLite or sent to the server.
+Stars for skills outside the active corpus are retained rather than discarded,
+because a disabled repository's skills must keep their stars when it is enabled
+again. If browser storage is unavailable, starring still works for that page
+load.
+
+Starring is a Skills-page affordance. Inspecting an individual scan on the
+Scans page presents that scan's own findings in its persisted order and offers
+no star control, so scan inspection continues to match the verbose formatter
+output.
+
 ## 6. Filtering and related skills
 
 The existing name/description filter applies to every skill in the active
@@ -111,12 +141,18 @@ corpus. Counts and the no-match state reflect the filtered combined results.
 Changing the enabled repository set reapplies the current filter; it does not
 clear the query.
 
+Filtering and starring compose: a filter still hides every skill that does not
+match it, and the matching starred skills are listed before the matching
+unstarred ones. Starring never reveals a skill that the filter excludes, and
+filtering never changes which skills are starred.
+
 Selecting a skill computes related skills against every other skill in the
 active corpus, including skills from other enabled repositories. The existing
 tokenization, weighting, cosine-similarity formula, rounding, and lexical-score
 explanation remain unchanged. Each related result includes its repository label
 and path. Similarity ties follow the combined deterministic ordering in section
-5.
+5. Related skills are ranked by similarity only; stars do not reorder that
+panel, and starring a skill does not change the similarity corpus.
 
 Disabling the repository that contains the selected skill closes the related
 skills panel. Disabling another repository recomputes the ranking over the
@@ -163,14 +199,19 @@ repository selections return 400. The existing token, host/origin checks,
 request limits, cache controls, content security policy, and safe text rendering
 apply to both pages and all new routes.
 
-Repository enablement is not written to SQLite and does not require a server
-mutation endpoint. The server is the authority for latest-scan selection and
-returns a consistent stored snapshot for each response.
+Repository enablement and starred skills are not written to SQLite and do not
+require a server mutation endpoint. The server is the authority for latest-scan
+selection and returns a consistent stored snapshot for each response.
 
 ## 9. Accessibility and responsive behavior
 
 - Repository checkboxes use native checkbox semantics and expose the
   indeterminate state of **All repositories**.
+- The star control is a native toggle button with an accessible name that
+  states the action and the skill's name and repository, and with a pressed
+  state that reflects whether the skill is starred. It is operable from the
+  keyboard, and because toggling reorders the list, focus stays on the star of
+  the skill that was just toggled.
 - Selection changes and combined counts are announced through a polite live
   region without moving focus.
 - Both pages retain labelled controls, visible focus, logical heading order,
@@ -207,15 +248,33 @@ returns a consistent stored snapshot for each response.
     the base specification.
 11. Automated tests cover latest-scan selection (including timestamp ties),
     all/one/none repository selection, cross-repository filter and similarity,
-    scan grouping, empty states, reload behavior, and mobile/accessibility
-    semantics.
+    scan grouping, empty states, reload behavior, starring, and
+    mobile/accessibility semantics.
+12. Starring a skill moves it ahead of every unstarred skill, including ahead
+    of skills from a repository that is listed earlier, and leaves the relative
+    order of the remaining skills unchanged. Unstarring restores the previous
+    order.
+13. With a filter applied, only matching skills are listed and the matching
+    starred skills come first. Clearing the filter restores the full
+    starred-first list.
+14. Stars survive a reload without a rescan, are reported by the star control's
+    pressed state, and are not present on scan inspection cards. Counts,
+    repository selection, and related-skill ranking are unchanged by starring.
 
 ### Visual regression contract
 
 The automated browser suite captures reviewed Chromium screenshots of the
-empty Scans page, populated Scans page, populated Skills page, and narrow mobile
-Skills layout. It uses deterministic local fixtures, locale, timezone, color
-scheme, reduced motion, viewport sizes, and normalized generated values.
+empty Scans page, populated Scans page, populated Skills page, a Skills page
+with one starred skill, and the narrow mobile Skills layout. It uses
+deterministic local fixtures, locale, timezone, color scheme, reduced motion,
+viewport sizes, pointer position, and normalized generated values.
+
+A separate browser suite asserts interactive behavior rather than pixels. It
+drives the real pages against the same local fixtures and covers the
+starred-first order, the interaction between starring and filtering, star
+persistence across a reload, keyboard operation and focus after a toggle, and
+the absence of a star control on scan inspection cards. Both browser suites run
+in continuous integration alongside `mvn verify`.
 
 Normal verification compares rendered screenshots with tracked Linux Chromium
 baselines and must not update them. A mismatch fails with expected, actual, and
@@ -230,5 +289,8 @@ the lockfile's Playwright version and uploads comparison artifacts on failure.
 - Cross-repository duplicate collapsing or a new global skill identity.
 - Deleting repositories or scans, renaming repositories, or editing skill
   contents.
-- Persisting repository enablement across browsers or machines.
+- Persisting repository enablement or starred skills across browsers or
+  machines, and sharing either with another user.
+- Starring from the Scans page, starring a single location inside a duplicate
+  group, or filtering the list down to starred skills only.
 - Changing the CLI to scan several repositories in one invocation.

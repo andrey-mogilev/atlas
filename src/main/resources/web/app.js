@@ -4,6 +4,9 @@ const token = document.querySelector('meta[name="atlas-token"]').content;
 const isScansPage = location.pathname === "/scans";
 let repositories = [], activeFindings = [], similarityModel = null, selectedFinding = null, activeJob = null, currentText = "";
 const STOP_WORDS = new Set(["a","an","and","are","as","at","be","by","for","from","in","is","it","of","on","or","that","the","this","to","use","with","you","your"]);
+const starredSkills = storedStars();
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const STAR_PATH = "M12 2.8l2.9 5.88 6.5.94-4.7 4.58 1.11 6.47L12 17.6l-5.81 3.07 1.11-6.47-4.7-4.58 6.5-.94z";
 
 async function api(path, options = {}) {
   const response = await fetch(path, {...options, headers: {...options.headers, "X-Atlas-Token": token}});
@@ -33,6 +36,30 @@ function buildSimilarityModel(findings) {
 function similarity(left, right) { const small = left.size <= right.size ? left : right, large = small === left ? right : left; let score = 0; for (const [term, weight] of small) score += weight * (large.get(term) || 0); return Math.round(Math.min(1, Math.max(0, score)) * 100); }
 function findingKey(finding) { return `${finding.repositoryId}:${finding.id}`; }
 
+function storedStars() { try { const value = JSON.parse(localStorage.getItem("atlas-starred-skills") || "[]"); return new Set(Array.isArray(value) ? value.filter(id => typeof id === "string") : []); } catch (_) { return new Set(); } }
+function persistStars() { try { localStorage.setItem("atlas-starred-skills", JSON.stringify([...starredSkills])); } catch (_) {} }
+/** A card is starred when any of its grouped locations is, so stars survive changes to a duplicate group. */
+function isStarred(finding) { return finding.locations.some(location => starredSkills.has(location.id)); }
+function toggleStar(finding) {
+  if (isStarred(finding)) finding.locations.forEach(location => starredSkills.delete(location.id)); else starredSkills.add(finding.id);
+  persistStars(); renderFindings();
+  const restored = [...document.querySelectorAll(".finding-star")].find(node => node.dataset.findingKey === findingKey(finding));
+  if (restored) restored.focus();
+}
+function starIcon() {
+  const svg = document.createElementNS(SVG_NAMESPACE, "svg"), path = document.createElementNS(SVG_NAMESPACE, "path");
+  svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true"); svg.setAttribute("focusable", "false");
+  path.setAttribute("d", STAR_PATH); svg.append(path); return svg;
+}
+function starButton(finding) {
+  const starred = isStarred(finding), button = element("button", "finding-star");
+  button.type = "button"; button.dataset.findingKey = findingKey(finding);
+  button.setAttribute("aria-pressed", String(starred));
+  button.setAttribute("aria-label", `${starred ? "Unstar" : "Star"} ${finding.name} in ${finding.repositoryLabel}`);
+  button.title = starred ? "Starred skills are listed first" : "Star this skill to list it first";
+  button.append(starIcon()); button.addEventListener("click", () => toggleStar(finding)); return button;
+}
+
 function closeSimilarity() { selectedFinding = null; $("similarity-panel").hidden = true; $("result-explorer").classList.remove("similarity-open"); document.querySelectorAll(".finding-select").forEach(button => button.setAttribute("aria-pressed", "false")); }
 function selectFinding(index) {
   const selected = similarityModel.findings[index]; selectedFinding = findingKey(selected);
@@ -47,12 +74,15 @@ function selectFinding(index) {
 function findingCard(finding, index, selectable = true) {
   const card = element("article", "finding"), heading = element(selectable ? "button" : "div", selectable ? "finding-select" : "finding-heading");
   if (selectable) { heading.type = "button"; heading.dataset.findingKey = findingKey(finding); heading.setAttribute("aria-pressed", String(selectedFinding === findingKey(finding))); heading.setAttribute("aria-label", `Show skills similar to ${finding.name} in ${finding.repositoryLabel}`); heading.addEventListener("click", () => selectFinding(index)); }
-  heading.append(element("span", "finding-name", finding.name), element("span", "finding-repository", finding.repositoryLabel), element("span", "finding-path", finding.path), element("span", "finding-description", finding.description.replace(/\s+/g, " ").trim() || "(none)")); card.append(heading);
+  heading.append(element("span", "finding-name", finding.name), element("span", "finding-repository", finding.repositoryLabel), element("span", "finding-path", finding.path), element("span", "finding-description", finding.description.replace(/\s+/g, " ").trim() || "(none)"));
+  if (selectable) { const top = element("div", "finding-top"); top.append(heading, starButton(finding)); card.append(top); } else card.append(heading);
   if (finding.locations.length === 1) card.append(element("div", "finding-id", finding.id), sourceLink(finding)); else { const details = element("details", "locations"); details.open = finding.locations.length <= 4; details.append(element("summary", "", `${finding.locations.length} locations`)); const list = element("ul", "location-list"); for (const location of finding.locations) { const item = element("li"); item.append(element("div", "finding-path", location.path), element("div", "finding-id", location.id), sourceLink(location)); list.append(item); } details.append(list); card.append(details); }
   return card;
 }
 function renderFindings() {
-  const query = $("skill-filter").value, visible = activeFindings.map((finding, index) => ({finding, index})).filter(item => matchesFilter(item.finding, query));
+  const query = $("skill-filter").value, matched = activeFindings.map((finding, index) => ({finding, index})).filter(item => matchesFilter(item.finding, query));
+  // Starred skills lead; both partitions keep the deterministic repository and path order.
+  const visible = [...matched.filter(item => isStarred(item.finding)), ...matched.filter(item => !isStarred(item.finding))];
   const locations = visible.reduce((sum, item) => sum + item.finding.locations.length, 0), enabled = repositories.filter(repo => repo.enabled).length;
   $("result-count").textContent = `${enabled} ${enabled === 1 ? "repository" : "repositories"} · ${counts(visible.length, locations)}`;
   $("filter-summary").textContent = query.trim() && activeFindings.length ? `Showing ${visible.length} of ${activeFindings.length} ${activeFindings.length === 1 ? "skill" : "skills"}.` : "";

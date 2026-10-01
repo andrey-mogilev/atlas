@@ -349,6 +349,42 @@ h3{
   background:#f0f5e9;
   border-color:#cfddc8
 }
+.finding-top{
+  display:flex;
+  align-items:flex-start;
+  gap:10px
+}
+.finding-top>.finding-select{
+  flex:1;
+  min-width:0
+}
+.finding-star{
+  flex:0 0 auto;
+  background:transparent;
+  color:#9aa693;
+  border-color:transparent;
+  padding:9px;
+  margin:-10px -9px 0 0;
+  line-height:0
+}
+.finding-star svg{
+  width:19px;
+  height:19px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.7;
+  stroke-linejoin:round
+}
+.finding-star:hover{
+  background:#f0f5e9;
+  color:#2e6247
+}
+.finding-star[aria-pressed="true"]{
+  color:#2e6247
+}
+.finding-star[aria-pressed="true"] svg{
+  fill:currentColor
+}
 .finding-name{
   display:block;
   font:600 17px/1.3 Georgia,serif;
