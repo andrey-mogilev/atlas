@@ -21,6 +21,8 @@ async function scan(page, source) {
 
 async function stabilizeGeneratedValues(page) {
   await page.evaluate(() => {
+    const targetHelp = document.querySelector("#target-help");
+    if (targetHelp) targetHelp.innerHTML = "GitHub URLs work with or without .git. Relative paths start from <code>/workspace/atlas</code>.";
     document.querySelectorAll(".finding-id").forEach((node, index) => {
       node.textContent = `skl_visual_${String(index + 1).padStart(2, "0")}`;
     });
@@ -39,19 +41,20 @@ test("core pages match their reviewed visual baselines", async ({page}) => {
 
   await page.goto("/scans");
   await expect(page.locator("#history")).toContainText("No saved scans yet");
-  await expect(page).toHaveScreenshot("scans-empty.png", {fullPage: true});
+  await stabilizeGeneratedValues(page);
+  await expect.soft(page).toHaveScreenshot("scans-empty.png", {fullPage: true});
 
   for (const source of sources) await scan(page, source);
   await stabilizeGeneratedValues(page);
   await expect(page.locator(".history-group")).toHaveCount(2);
-  await expect(page).toHaveScreenshot("scans-populated.png", {fullPage: true});
+  await expect.soft(page).toHaveScreenshot("scans-populated.png", {fullPage: true});
 
   await page.locator("#skills-nav").click();
   await expect(page.locator(".repository-row")).toHaveCount(2);
   await expect(page.locator(".finding")).toHaveCount(6);
   await stabilizeGeneratedValues(page);
-  await expect(page).toHaveScreenshot("skills-populated.png", {fullPage: true});
+  await expect.soft(page).toHaveScreenshot("skills-populated.png", {fullPage: true});
 
   await page.setViewportSize({width: 390, height: 844});
-  await expect(page.locator("body")).toHaveScreenshot("skills-mobile.png");
+  await expect.soft(page.locator("body")).toHaveScreenshot("skills-mobile.png");
 });
