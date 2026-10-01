@@ -35,11 +35,12 @@ to record the intended behavior.
   appropriate local validation before opening a pull request.
 - For every change that affects visible web UI behavior, use the repository's
   `web-ui-demo` skill. After final UI validation and immediately before opening
-  the pull request, record the changed behavior and add the current video to a
-  `Video demonstration` section in the pull request description. Replace the
-  recording whenever a later commit changes visible behavior. Generate demos
-  through the repository Playwright test and store them in the ignored
-  `demos/` directory.
+  or updating the pull request, record the changed behavior. The current video
+  and screenshots may be attached directly to the pull request or to an AIr
+  Automation run. Add links to the evidence in the pull request's
+  `Video demonstration` section, and replace the evidence whenever a later
+  commit changes visible behavior. Generate demos through the repository
+  Playwright test and store them in the ignored `demos/` directory.
 - Commit and push the change branch to GitHub, then open a draft pull request
   targeting `main`. CI currently runs on pull requests and pushes to `main`,
   so a draft pull request is needed to validate a change branch.
@@ -53,8 +54,11 @@ to record the intended behavior.
   the checks pass. Do not treat pending, skipped, or unavailable required
   checks as passing.
 - Mark the pull request ready for review only after the work is complete and
-  CI is green. Include a summary of the change and validation in the pull
-  request, and provide its link when handing the work back to the user.
+  CI is green. When UI evidence is hosted by an AIr Automation run, add its
+  links and mark the pull request ready rather than leaving it in draft merely
+  because the artifacts are hosted outside GitHub. Include a summary of the
+  change and validation in the pull request, and provide its link when handing
+  the work back to the user.
 - Do not merge the pull request unless the user explicitly requests it.
 - Do not treat a change as complete solely because it works locally.
 
@@ -65,8 +69,9 @@ A change is done only when all of the following are true:
 1. The implementation and its relevant specification/documentation are
    updated.
 2. Appropriate local validation has been run.
-3. For a visible web UI change, the pull request description contains a
-   reviewed video demonstrating the current revision.
+3. For a visible web UI change, the pull request description links to reviewed
+   video and screenshot evidence for the current revision, attached either to
+   the pull request or to an AIr Automation run.
 4. The change is committed and pushed to its separate GitHub branch.
 5. A pull request targeting `main` exists, and CI checks for its latest
    revision have been reviewed and are passing.
