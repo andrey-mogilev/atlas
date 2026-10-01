@@ -15,7 +15,7 @@ module.exports = defineConfig({
   expect: {
     toHaveScreenshot: {
       animations: "disabled",
-      maxDiffPixelRatio: 0.005
+      maxDiffPixels: 100
     }
   },
   use: {
