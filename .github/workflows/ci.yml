@@ -34,13 +34,18 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
 
+      - name: Run web behavior tests
+        run: npm run test:web
+
       - name: Compare UI screenshots with baselines
         run: npm run test:visual
 
-      - name: Upload visual test differences
+      - name: Upload browser test artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: visual-test-results
-          path: target/visual-results/
+          path: |
+            target/visual-results/
+            target/behavior-results/
           if-no-files-found: ignore

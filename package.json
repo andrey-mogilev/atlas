@@ -4,6 +4,7 @@
   "scripts": {
     "demo:install": "playwright install chromium ffmpeg",
     "demo:ui": "playwright test tests/ui-demo.spec.js",
+    "test:web": "playwright test --config=playwright.behavior.config.js",
     "test:visual": "playwright test --config=playwright.visual.config.js",
     "test:visual:update": "playwright test --config=playwright.visual.config.js --update-snapshots"
   },

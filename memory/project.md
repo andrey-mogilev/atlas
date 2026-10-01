@@ -13,3 +13,14 @@ documentation.
   maintained in `README.md`.
 - Repository change and pull request requirements are maintained in
   `AGENTS.md`.
+
+## Visual baselines
+
+The tracked Chromium baselines in `tests/visual.spec.js-snapshots/` depend on
+the font that fontconfig resolves for `sans-serif`, because the page's font
+stack lists no font that exists on Linux. They were verified in 2026-10 to
+reproduce only in an environment where DejaVu Sans is the default sans-serif,
+which is what the CI runner provides. Regenerating baselines on a machine whose
+default differs changes every text pixel and produces baselines that fail CI.
+Before updating baselines, confirm the unmodified suite passes first; that check
+is the cheapest proof that the environment matches CI.

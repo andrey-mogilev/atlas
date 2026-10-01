@@ -404,6 +404,10 @@ environment at startup; a browser cannot change it.
   name or description, updates visible skill and location counts, and shows an
   explicit no-match state. It resets when a different result opens; changing
   the filter closes an open related-skills panel.
+- Each Skills card has a star toggle. Starred skills are listed before
+  unstarred ones, with and without a filter, and stars are browser state that
+  is never persisted in the database. See the starred-skills rules in
+  `.spec/multi-repository-web.md`.
 - Similarity is computed locally in the browser over the enabled corpus. Text is
   Unicode NFKC-normalized and case-folded, then split into letter/number tokens;
   one-character tokens and a fixed set of common English filler words are
@@ -494,6 +498,9 @@ nodes for repository-controlled content.
    there are no alternatives, and the panel can be closed.
 9. Filtering matches skill names and descriptions, reports visible counts and a
    no-match state, and composes with skill selection without stale selections.
+10. Starring a skill lists it before unstarred skills, keeps the remaining
+    order deterministic, composes with filtering, and survives a reload without
+    a rescan or a database write.
 
 ## 11. Duplicate skills and content storage
 

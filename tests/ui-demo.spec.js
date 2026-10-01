@@ -132,7 +132,7 @@ async function clickRipple(page, x, y) {
 }
 
 async function focus(page, selector, hold = 750) {
-  const item = page.locator(selector).first();
+  const item = (typeof selector === "string" ? page.locator(selector) : selector).first();
   await item.scrollIntoViewIfNeeded();
   await page.waitForTimeout(450);
   await page.locator(".demo-focus").evaluateAll(nodes => {
@@ -191,6 +191,17 @@ test(`records the ${scenario.name}`, async ({page, context}) => {
   await click(page, target);
   await expect(page.locator(".finding")).toHaveCount(6);
   await page.waitForTimeout(800);
+
+  const lastCard = page.locator("#findings .finding").last();
+  const lastName = await lastCard.locator(".finding-name").textContent();
+  target = await focus(page, lastCard.locator(".finding-star"), 900);
+  await click(page, target);
+  const firstStar = page.locator("#findings .finding").first().locator(".finding-star");
+  await expect(firstStar).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#findings .finding").first().locator(".finding-name")).toHaveText(lastName);
+  await focus(page, "#findings .finding", 1_900);
+  await captureMoment(page, demos, prefix, "skillStarred");
+  await page.waitForTimeout(700);
 
   target = await focus(page, "#skill-filter", 650);
   await click(page, target);

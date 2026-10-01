@@ -46,19 +46,22 @@ Run `mvn verify` to build the shaded CLI, execute unit tests, and execute the
 offline integration tests. The integration tests create temporary Git
 repositories and SQLite databases; they do not require network access.
 
-The web interface also has Chromium visual regression tests. They scan fixed
-local fixtures in a real browser and compare the empty, populated, and mobile
-pages with reviewed screenshots. Install the locked Node dependencies and the
-Playwright browser once, then run the comparison:
+The web interface also has two Chromium browser suites. Both scan fixed local
+fixtures in a real browser: `test:web` asserts interactive behavior such as the
+star ordering, and `test:visual` compares the empty, populated, starred, and
+mobile pages with reviewed screenshots. Install the locked Node dependencies and
+the Playwright browser once, then run them:
 
 ```sh
 npm ci
 npx playwright install chromium
+npm run test:web
 npm run test:visual
 ```
 
 On a failure, inspect the expected, actual, and diff images under
-`target/visual-results/`. If an intentional UI change requires new baselines,
+`target/visual-results/`, and the behavior traces under
+`target/behavior-results/`. If an intentional UI change requires new baselines,
 review the rendered pages and update the tracked screenshots explicitly with
 `npm run test:visual:update`; normal test runs never rewrite baselines. Baselines
 are generated with Playwright's pinned Chromium on Linux, which is also the CI
@@ -141,6 +144,7 @@ See [.spec/readme.md](.spec/readme.md) for the command contract.
 The repository-oriented web experience is defined in
 [.spec/multi-repository-web.md](.spec/multi-repository-web.md).
 
+
 ## Duplicate skills
 
 Within a scan, identical `SKILL.md` contents are presented once, with the
@@ -200,6 +204,14 @@ Results can be filtered as you type by a case-insensitive name or description
 substring. Visible skill and location counts update to match while the enabled
 repository count remains visible. Non-web source URLs are displayed as text
 because browsers may block local file and SSH links.
+
+Each card has a star toggle at its top right. Starred skills are listed before
+unstarred ones, and the two groups keep the usual repository and path order. A
+filter still hides skills that do not match it, and the matching starred skills
+are listed first. Stars are stored in the browser, like the repository
+selection: they survive a reload, apply to this browser only, and are never
+written to the database. The same skill in two repositories is starred
+separately, and a star stays with a skill while its repository is disabled.
 
 Select a skill card to open a separate related-skills panel. It ranks every
 other unique skill in the enabled repository corpus by a 0–100% lexical similarity score. The score
