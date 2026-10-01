@@ -597,6 +597,132 @@ button[aria-current="true"]{
 [hidden]{
   display:none!important
 }
+.owner-progress{
+  border-top:1px solid #e7ecdf;
+  margin-top:22px;
+  padding-top:18px
+}
+.owner-progress .section-title{
+  margin-bottom:12px
+}
+.owner-progress h3{
+  font-size:13px;
+  margin:0
+}
+#owner-name{
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:1.5px;
+  color:#7b8975
+}
+progress{
+  width:100%;
+  height:9px;
+  border:0;
+  border-radius:999px;
+  background:#e9efe5;
+  accent-color:#2e6247
+}
+progress::-webkit-progress-bar{
+  background:#e9efe5;
+  border-radius:999px
+}
+progress::-webkit-progress-value{
+  background:#2e6247;
+  border-radius:999px
+}
+.owner-repositories{
+  list-style:none;
+  margin:14px 0 0;
+  padding:0;
+  max-height:250px;
+  overflow:auto
+}
+.owner-repository{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:4px 12px;
+  align-items:start;
+  border-top:1px solid #e6eadd;
+  padding:11px 0;
+  font-size:11px
+}
+.owner-repository-name{
+  font-weight:600;
+  overflow-wrap:anywhere
+}
+.owner-repository-detail{
+  grid-column:1/-1;
+  color:#7e8c78;
+  overflow-wrap:anywhere
+}
+.owner-repository.failed .owner-repository-detail{
+  color:#933b29
+}
+.owner-status{
+  border-radius:999px;
+  padding:2px 8px;
+  font-size:9px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.8px;
+  background:#dfeadd;
+  color:#315c40
+}
+.owner-status.skipped{
+  background:#eef1e8;
+  color:#6a7c65
+}
+.owner-status.failed{
+  background:#fcf0ec;
+  color:#933b29
+}
+.owner-dialog{
+  border:1px solid #dbe2d5;
+  border-radius:14px;
+  padding:26px;
+  max-width:460px;
+  background:#fff;
+  color:#26382e;
+  box-shadow:0 18px 50px #1d2c1f26
+}
+.owner-dialog::backdrop{
+  background:#24382a66
+}
+.owner-dialog h2{
+  font-size:19px;
+  letter-spacing:-.5px;
+  margin:0 0 12px
+}
+.owner-dialog p{
+  margin:0 0 9px;
+  font-size:13px
+}
+.owner-rescan-check{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  font-size:12px;
+  margin:18px 0 8px;
+  cursor:pointer
+}
+.owner-rescan-check input{
+  width:17px;
+  height:17px;
+  flex:0 0 auto;
+  margin:0;
+  accent-color:#2e6247
+}
+.owner-dialog-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+  margin-top:22px
+}
+.owner-dialog-actions .secondary{
+  font-size:13px;
+  padding:12px 18px
+}
 @media(max-width:960px){
   .workspace{
     grid-template-columns:minmax(0,1fr) 260px;
@@ -659,5 +785,15 @@ button[aria-current="true"]{
     position:static;
     grid-row:1;
     margin-top:8px
+  }
+  .owner-dialog{
+    padding:21px;
+    max-width:calc(100vw - 32px)
+  }
+  .owner-dialog-actions{
+    flex-wrap:wrap
+  }
+  .owner-dialog-actions>button{
+    flex:1
   }
 }

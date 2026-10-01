@@ -12,6 +12,12 @@ change the `skill-atlas scan` CLI contract, repository identity rules, scan
 execution, skill discovery, stable location IDs, or persistence semantics in
 the base specification.
 
+Scanning a whole GitHub user or organization adds repositories to this corpus
+one at a time. Its confirmation dialog, rescan choice, progress reporting, and
+incremental refresh are specified in
+[`organization-scan.md`](organization-scan.md); everything below applies
+unchanged to the repositories it creates.
+
 ## 2. Terminology and selection rules
 
 - A **repository** is an existing `repositories` record identified by its
