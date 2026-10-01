@@ -1,9 +1,10 @@
-# Handoff: organization scanning, demo video needs uploading
+# Handoff: organization scanning, recording a demo without a browser
 
 - Date: 2026-10-01
 - Branch: `codex/organization-scan`
 - Related: [decision record](../decisions/2026-10-01-organization-scanning.md),
-  [`.spec/organization-scan.md`](../../.spec/organization-scan.md)
+  [`.spec/organization-scan.md`](../../.spec/organization-scan.md),
+  [AIr Automation UI evidence](../decisions/2026-10-01-air-automation-ui-evidence.md)
 
 ## State
 
@@ -23,14 +24,16 @@ browser behavior that earlier revisions could only reason about —
 `dialog.showModal()`, the `<progress>` styling, the incremental Saved scans and
 Skills refresh — is confirmed working.
 
-## Remaining work
+## Where the evidence lives
 
-The video is not embedded in pull request #13 yet. GitHub only accepts media for
-a pull request description through its web editor, which no API token can drive,
-so this step needs a person: open the pull request description, drag
-`demos/codex-organization-scan-2026-10-01.webm` into the `Video demonstration`
-section, confirm the rendered description plays it, and then mark the pull
-request ready for review. Nothing else is outstanding.
+`demos/` is ignored and GitHub only accepts media for a pull request description
+through its web editor, which no API token can drive. The video and the key
+moment screenshots are therefore attached to the AIr Automation run linked from
+pull request #13, which
+[the UI evidence decision](../decisions/2026-10-01-air-automation-ui-evidence.md)
+accepts as sufficient for marking a pull request ready for review. Re-recording
+after a UI-affecting commit means re-attaching to the current run and replacing
+the links.
 
 ## Recording a demo in a container without a browser
 
