@@ -45,8 +45,8 @@ test("core pages match their reviewed visual baselines", async ({page}) => {
   await expect.soft(page).toHaveScreenshot("scans-empty.png", {fullPage: true});
 
   for (const source of sources) await scan(page, source);
-  await stabilizeGeneratedValues(page);
   await expect(page.locator(".history-group")).toHaveCount(2);
+  await stabilizeGeneratedValues(page);
   await expect.soft(page).toHaveScreenshot("scans-populated.png", {fullPage: true});
 
   await page.locator("#skills-nav").click();
