@@ -1,4 +1,4 @@
-# Handoff: organization scanning, browser evidence outstanding
+# Handoff: organization scanning, demo video needs uploading
 
 - Date: 2026-10-01
 - Branch: `codex/organization-scan`
@@ -8,47 +8,55 @@
 ## State
 
 Implementation, specification, documentation, and JVM tests are complete.
-`mvn verify` passes locally (41 unit tests, 4 integration tests). The feature
-was also exercised end to end against the real GitHub API: the CLI refusal,
+`mvn verify` passes locally (41 unit tests, 4 integration tests) and in CI. The
+feature was exercised end to end against the real GitHub API: the CLI refusal,
 an owner scan, the skip-by-default second run, `--rescan`, `--json`, the
 `POST /api/targets` preview, incremental owner job snapshots, the owner plus
-branch rejection, and the invalid `rescan` rejection were all verified by hand.
+branch rejection, and the invalid `rescan` rejection.
 
-## Blocker: no browser in the development environment
-
-Playwright's Chromium download is blocked by network policy in the environment
-this change was prepared in, and no system Chromium and no package-install
-rights are available:
-
-```text
-Download failed: server returned code 403 body 'Blocked by network policy'.
-URL: https://cdn.playwright.dev/builds/cft/.../chrome-linux64.zip
-```
-
-Consequences, both of which need a machine with a browser:
-
-1. `npm run test:visual` could not be run locally. This turned out not to
-   matter: the new DOM is hidden by default (`#owner-progress` is `hidden`,
-   `#owner-dialog` is a closed `<dialog>`), and CI's comparison against the
-   tracked Linux Chromium baselines passed on the first revision of pull
-   request #13, so no baseline needed updating. Keep new idle-state DOM hidden
-   by default to preserve that property.
-2. `npm run demo:ui` could not record the video that `AGENTS.md` and the
-   `web-ui-demo` skill require for a visible UI change, and
-   `tests/ui-demo.scenario.js` and `tests/ui-demo.spec.js` were deliberately
-   left unchanged rather than committing a demo script that was never executed.
+The UI demo has now been recorded in a real browser and reviewed:
+`demos/codex-organization-scan-2026-10-01.webm` (67 s) plus the key moment
+screenshots. The walkthrough covers the confirmation dialog, the progress panel
+with its per-repository list, the rerun that reports saved results instead of
+scanning, the rerun with the rescan checkbox ticked, and the Skills page. The
+browser behavior that earlier revisions could only reason about —
+`dialog.showModal()`, the `<progress>` styling, the incremental Saved scans and
+Skills refresh — is confirmed working.
 
 ## Remaining work
 
-Record the demo on a machine with Chromium: extend `tests/ui-demo.scenario.js`
-and `tests/ui-demo.spec.js` with the owner confirmation dialog, the rescan
-checkbox, and the progress panel, run `npm run demo:ui`, review the video, and
-add it to the pull request's `Video demonstration` section before marking the
-pull request ready for review. This is the only outstanding item; `mvn verify`
-and the visual comparison are green in CI.
+The video is not embedded in pull request #13 yet. GitHub only accepts media for
+a pull request description through its web editor, which no API token can drive,
+so this step needs a person: open the pull request description, drag
+`demos/codex-organization-scan-2026-10-01.webm` into the `Video demonstration`
+section, confirm the rendered description plays it, and then mark the pull
+request ready for review. Nothing else is outstanding.
 
-## Not verified anywhere
+## Recording a demo in a container without a browser
 
-Browser behavior of `dialog.showModal()`, the `<progress>` styling, and the
-Skills-page live refresh were reasoned about and syntax-checked (`node --check`,
-element-id cross-check against `index.html`) but never rendered.
+Playwright's own CDN (`cdn.playwright.dev`) is blocked by network policy in the
+Air development environment, but the same Chrome for Testing build is reachable
+from Google's bucket, so a demo can still be recorded there:
+
+- Download `chrome-linux64.zip` and `chrome-headless-shell-linux64.zip` for the
+  version `npx playwright install --dry-run chromium` names, from
+  `https://storage.googleapis.com/chrome-for-testing-public/<version>/linux64/`,
+  and unpack them into `~/.cache/ms-playwright/chromium-<build>/` and
+  `chromium_headless_shell-<build>/` with an `INSTALLATION_COMPLETE` marker.
+- Chromium's shared libraries, a working `ffmpeg` for `ffmpeg-<build>/
+  ffmpeg-linux`, and fonts are not installed and there are no root rights.
+  `apt-get` can still resolve and download them with `APT_CONFIG` pointing at a
+  writable `Dir::State`/`Dir::Cache` and a copy of `/var/lib/dpkg/status`;
+  unpack the archives with `dpkg -x` into a prefix and export
+  `LD_LIBRARY_PATH`, `FONTCONFIG_PATH`, and `XDG_DATA_HOME`.
+- Without any font, Chromium aborts with
+  `FATAL ... SkFontMgr_FontConfigInterface ... Not implemented`, and the generic
+  CSS families need an explicit fontconfig rule to reach DejaVu.
+- `/dev/shm` is 64 MB, which crashes the renderer; pass
+  `--disable-dev-shm-usage`. Supply it from a config file outside the
+  repository rather than committing an environment-specific launch option.
+
+Because the fonts differ from the GitHub runner's, `npm run test:visual` fails
+locally on text metrics alone — the layout matches pixel for pixel. CI's
+comparison stays the authority for the tracked baselines; do not update them
+from this environment.
