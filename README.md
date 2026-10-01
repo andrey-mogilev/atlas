@@ -44,6 +44,24 @@ Run `mvn verify` to build the shaded CLI, execute unit tests, and execute the
 offline integration tests. The integration tests create temporary Git
 repositories and SQLite databases; they do not require network access.
 
+The web interface also has Chromium visual regression tests. They scan fixed
+local fixtures in a real browser and compare the empty, populated, and mobile
+pages with reviewed screenshots. Install the locked Node dependencies and the
+Playwright browser once, then run the comparison:
+
+```sh
+npm ci
+npx playwright install chromium
+npm run test:visual
+```
+
+On a failure, inspect the expected, actual, and diff images under
+`target/visual-results/`. If an intentional UI change requires new baselines,
+review the rendered pages and update the tracked screenshots explicitly with
+`npm run test:visual:update`; normal test runs never rewrite baselines. Baselines
+are generated with Playwright's pinned Chromium on Linux, which is also the CI
+environment.
+
 ```sh
 mvn package
 ./bin/skill-atlas scan https://github.com/org/repository.git
