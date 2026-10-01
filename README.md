@@ -144,6 +144,7 @@ See [.spec/readme.md](.spec/readme.md) for the command contract.
 The repository-oriented web experience is defined in
 [.spec/multi-repository-web.md](.spec/multi-repository-web.md).
 
+
 ## Duplicate skills
 
 Within a scan, identical `SKILL.md` contents are presented once, with the
