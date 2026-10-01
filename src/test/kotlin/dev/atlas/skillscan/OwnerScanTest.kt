@@ -106,9 +106,57 @@ class OwnerScanTest {
             val expected = if (type == "Organization") "$GITHUB_API_ORIGIN/orgs/acme/repos?per_page=100&page=1"
             else "$GITHUB_API_ORIGIN/users/acme/repos?per_page=100&page=1"
             assertEquals(expected, requests.last(), type)
-            // The organization endpoint already includes private repositories, so it is never probed.
-            assertEquals(type == "User", requests.contains("$GITHUB_API_ORIGIN/user"), type)
+            // A token that names a user is not an installation token, so no installation listing.
+            assertFalse(requests.any { it.startsWith("$GITHUB_API_ORIGIN/installation/repositories") }, type)
         }
+    }
+
+    @Test fun `an installation token enumerates without a user identity`() {
+        // Actions' GITHUB_TOKEN is an installation token: GET /user answers 403 for it, and the
+        // repositories it can reach are listed only by the installation endpoint.
+        for (public in listOf("[]", listing("dev/public-one"))) {
+            val requests = mutableListOf<String>()
+            val resolved = api(requests = requests, token = "installation") { url ->
+                when {
+                    url.endsWith("/users/dev") -> ApiResponse(200, account("dev", "User"))
+                    url.endsWith("/user") -> ApiResponse(403, """{"message":"Resource not accessible by integration"}""")
+                    url.startsWith("$GITHUB_API_ORIGIN/users/dev/repos") -> ApiResponse(200, public)
+                    url.startsWith("$GITHUB_API_ORIGIN/installation/repositories") -> ApiResponse(200,
+                        """{"total_count":2,"repositories":${listing("dev/private-one", "other/not-mine")}}""")
+                    else -> ApiResponse(200, "[]")
+                }
+            }.plan("dev")
+            val expected = if (public == "[]") listOf("dev/private-one")
+            else listOf("dev/private-one", "dev/public-one")
+            assertEquals(expected, resolved.repositories.map { it.fullName }, public)
+            assertTrue(requests.any { it.startsWith("$GITHUB_API_ORIGIN/installation/repositories") }, public)
+            assertFalse(resolved.truncated, public)
+        }
+    }
+
+    @Test fun `a token with neither a user identity nor an installation keeps the public listing`() {
+        val resolved = api(token = "narrow") { url ->
+            when {
+                url.endsWith("/users/dev") -> ApiResponse(200, account("dev", "User"))
+                url.endsWith("/user") -> ApiResponse(403, "{}")
+                url.startsWith("$GITHUB_API_ORIGIN/installation/repositories") -> ApiResponse(404, "{}")
+                else -> ApiResponse(200, listing("dev/one"))
+            }
+        }.plan("dev")
+        assertEquals(listOf("dev/one"), resolved.repositories.map { it.fullName })
+    }
+
+    @Test fun `an unreadable primary listing still fails the scan`() {
+        val failure = assertThrows(ScanFailure::class.java) {
+            api(token = "installation") { url ->
+                when {
+                    url.endsWith("/users/dev") -> ApiResponse(200, account("dev", "User"))
+                    url.endsWith("/user") -> ApiResponse(403, "{}")
+                    else -> ApiResponse(500, "{}")
+                }
+            }.plan("dev")
+        }
+        assertEquals(1, failure.exitCode)
     }
 
     @Test fun `GitHub failures are reported without exposing credentials`() {

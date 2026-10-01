@@ -38,6 +38,13 @@ internal data class OwnerPlan(
 internal data class ApiResponse(val status: Int, val body: String)
 
 /**
+ * One repository listing endpoint. [wrapped] marks a response that carries its entries under a
+ * `repositories` key rather than being an array; [optional] marks one whose failure is not the
+ * scan's failure.
+ */
+private data class RepositoryListing(val url: String, val optional: Boolean = false, val wrapped: Boolean = false)
+
+/**
  * A GitHub URL with a single path segment names a user or organization rather than a repository.
  * Detection is offline so that the CLI can refuse such a target without any network request.
  */
@@ -64,49 +71,81 @@ internal class GitHubApi(
             ?: throw ScanFailure(1, "GitHub returned an unexpected account description for $login")
         val canonicalLogin = (account["login"] as? String)?.takeUnless { it.isBlank() } ?: login
         val type = (account["type"] as? String)?.takeUnless { it.isBlank() } ?: "User"
-        val listing = repositoryListing(canonicalLogin, type)
         val repositories = linkedMapOf<String, OwnerRepository>()
         var truncated = false
-        var page = 1
-        while (true) {
-            val entries = decode(read("${listing}per_page=$REPOSITORY_PAGE_SIZE&page=$page", canonicalLogin)) as? List<*>
-                ?: throw ScanFailure(1, "GitHub returned an unexpected repository listing for $canonicalLogin")
-            for (entry in entries) {
-                val repository = (entry as? Map<*, *>)?.let { ownerRepository(it, canonicalLogin) } ?: continue
-                if (repository.url in repositories) continue
-                if (repositories.size >= maxRepositories) {
-                    truncated = true
-                    break
-                }
-                repositories[repository.url] = repository
-            }
-            if (truncated || entries.size < REPOSITORY_PAGE_SIZE) break
-            if (page >= MAX_REPOSITORY_PAGES) {
-                truncated = true
-                break
-            }
-            page++
+        for (listing in repositoryListings(canonicalLogin, type)) {
+            if (readListing(listing, canonicalLogin, repositories)) truncated = true
         }
         return OwnerPlan(canonicalLogin, type, "https://github.com/$canonicalLogin",
             repositories.values.sortedWith { a, b -> compareUtf8(a.fullName, b.fullName) }, truncated)
     }
 
     /**
-     * The organization endpoint already includes the private repositories a token can see, but the
-     * public user endpoint never does. An account that is the token's own is therefore listed
-     * through the authenticated endpoint; another account's private repositories cannot be listed
-     * at all, so a public listing stays correct for every other user.
+     * Which endpoints can see an account's repositories depends on the credentials:
+     *
+     * - the organization endpoint already includes the private and internal repositories a token
+     *   can see, so it is always the primary listing for an organization;
+     * - the public user endpoint never includes private repositories, so an account that is the
+     *   token's own is listed through the authenticated endpoint instead. Another account's private
+     *   repositories cannot be listed at all, so the public endpoint stays correct for every
+     *   other user;
+     * - a GitHub App installation token, which is what Actions' `GITHUB_TOKEN` is, has no user
+     *   identity at all. Its repositories are visible only through the installation listing, so
+     *   that listing is merged in whenever a token cannot name a user.
      */
-    private fun repositoryListing(login: String, type: String): String = when {
-        type == "Organization" -> "$GITHUB_API_ORIGIN/orgs/$login/repos?"
-        token != null && authenticatedLogin().equals(login, ignoreCase = true) ->
-            "$GITHUB_API_ORIGIN/user/repos?affiliation=owner&"
-        else -> "$GITHUB_API_ORIGIN/users/$login/repos?"
+    private fun repositoryListings(login: String, type: String): List<RepositoryListing> {
+        val own = if (token == null) null else authenticatedLogin()
+        val primary = when {
+            type == "Organization" -> "$GITHUB_API_ORIGIN/orgs/$login/repos?"
+            own != null && own.equals(login, ignoreCase = true) -> "$GITHUB_API_ORIGIN/user/repos?affiliation=owner&"
+            else -> "$GITHUB_API_ORIGIN/users/$login/repos?"
+        }
+        val listings = mutableListOf(RepositoryListing(primary))
+        if (token != null && own == null) {
+            listings += RepositoryListing("$GITHUB_API_ORIGIN/installation/repositories?",
+                optional = true, wrapped = true)
+        }
+        return listings
     }
 
+    /**
+     * Reads one listing into the merged set and reports whether a limit cut it short. An optional
+     * listing that the credentials cannot read is skipped: a token without a GitHub App
+     * installation must still scan the repositories its primary listing returns.
+     */
+    private fun readListing(
+        listing: RepositoryListing,
+        login: String,
+        into: MutableMap<String, OwnerRepository>
+    ): Boolean {
+        var page = 1
+        while (true) {
+            val body = try {
+                read("${listing.url}per_page=$REPOSITORY_PAGE_SIZE&page=$page", login)
+            } catch (failure: ScanFailure) {
+                if (listing.optional) return false
+                throw failure
+            }
+            val decoded = decode(body)
+            val entries = (if (listing.wrapped) (decoded as? Map<*, *>)?.get("repositories") else decoded) as? List<*>
+                ?: if (listing.optional) return false
+                else throw ScanFailure(1, "GitHub returned an unexpected repository listing for $login")
+            for (entry in entries) {
+                val repository = (entry as? Map<*, *>)?.let { ownerRepository(it, login) } ?: continue
+                if (repository.url in into) continue
+                if (into.size >= maxRepositories) return true
+                into[repository.url] = repository
+            }
+            if (entries.size < REPOSITORY_PAGE_SIZE) return false
+            if (page >= MAX_REPOSITORY_PAGES) return true
+            page++
+        }
+    }
+
+    /** Never fails the scan: an installation token has no authenticated user to report. */
     private fun authenticatedLogin(): String? {
-        val self = decode(read("$GITHUB_API_ORIGIN/user", "the authenticated account")) as? Map<*, *> ?: return null
-        return (self["login"] as? String)?.takeUnless { it.isBlank() }
+        val self = runCatching { decode(read("$GITHUB_API_ORIGIN/user", "the authenticated account")) }.getOrNull()
+        return ((self as? Map<*, *>)?.get("login") as? String)?.takeUnless { it.isBlank() }
     }
 
     private fun ownerRepository(entry: Map<*, *>, login: String): OwnerRepository? {

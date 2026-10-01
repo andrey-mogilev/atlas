@@ -131,10 +131,14 @@ repositories and to raise the GitHub API rate limit. A token reveals an
 organization's private and internal repositories, and your own private
 repositories when you scan your own account; another user's private
 repositories are not listable through the GitHub API at all, so scanning
-someone else's account always sees their public repositories only. The token is
-only sent to `api.github.com` and is never stored or printed, so cloning a
-private repository it reveals still needs your Git credentials; a repository
-that cannot be cloned is reported with code 3 and the rest are still scanned.
+someone else's account always sees their public repositories only. A GitHub App
+installation token, which is what a workflow's `GITHUB_TOKEN` is, has no user
+identity; the repositories it can reach are found through its installation
+instead, and a token with no installation simply scans what the public listing
+returns. The token is only sent to `api.github.com` and is never stored or
+printed, so cloning a private repository it reveals still needs your Git
+credentials; a repository that cannot be cloned is reported with code 3 and the
+rest are still scanned.
 `SKILL_SCAN_MAX_OWNER_REPOSITORIES` bounds how many repositories one
 organization scan considers; it defaults to 500 and a truncated listing is
 reported.

@@ -28,16 +28,27 @@ the documentation alone.
    can persist up to `SKILL_SCAN_MAX_OWNER_REPOSITORIES` (500), all enabled by
    default, so the Skills page reported an invalid selection and rendered
    nothing above 100 repositories.
+4. The first attempt at (1) made `GET /user` a precondition of every
+   user-account scan. A GitHub App installation token — what a workflow's
+   `GITHUB_TOKEN` is — gets HTTP 403 from that endpoint, so the attempted fix
+   aborted scans that had worked before it, including public-only ones. An
+   identity probe must never be able to fail a scan.
 
 ## Decision
 
-- Choose the repository listing endpoint from the account type and the
-  credentials, not from the account type alone. Organizations keep
-  `/orgs/<login>/repos`, which is already private-aware. A user account that is
-  the token's own account uses `/user/repos?affiliation=owner`. Every other
-  account keeps the public endpoint. Filter listing entries by the resolved
-  login, because the authenticated endpoint can return repositories the
-  requested account does not own.
+- Enumerate from a *list* of listing endpoints chosen from the account type and
+  the credentials, merged into one set keyed by canonical URL. Organizations
+  keep `/orgs/<login>/repos`, which is already private-aware. A user account
+  that is the token's own account uses `/user/repos?affiliation=owner`. Every
+  other account keeps the public endpoint. A token that cannot name a user is
+  an installation token, so `/installation/repositories` is merged in for it.
+  Filter listing entries by the resolved login, because the authenticated and
+  installation endpoints both return repositories the requested account does
+  not own.
+- Classify each listing as required or optional. `GET /user` is an identity
+  probe whose failure yields "no identity", never a scan failure, and the
+  installation listing is optional so a token without an installation still
+  scans its primary listing. Only a primary listing's failure fails the scan.
 - Bound the whole GitHub exchange with one deadline and collect the body with a
   size-limited `BodySubscriber`, cancelling the response when either bound is
   reached. Never rely on a request timeout to bound a body.
@@ -62,5 +73,13 @@ the documentation alone.
 ## Review triggers
 
 Revisit if GitHub changes what `/users/<login>/repos` returns for an
-authenticated request, if a token is ever handed to Git, or if the
-combined-results route's ID limit changes.
+authenticated request, if `GET /user` becomes available to installation
+tokens, if a token is ever handed to Git, or if the combined-results route's
+ID limit changes.
+
+## Generalization worth keeping
+
+Credential *kinds* differ in which endpoints they can reach, not only in what
+those endpoints return. Any new GitHub call added here must state whether it is
+required or merely informative, because treating an informative call as
+required converts a narrower credential into a total failure.

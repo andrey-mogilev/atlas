@@ -46,9 +46,22 @@ Owner targets are expanded through the GitHub REST API over HTTPS:
    - Every other user account uses `GET /users/<login>/repos`. That endpoint is
      public-only by definition, and another account's private repositories
      cannot be listed through any endpoint, so nothing is lost.
+   - A token that cannot name an authenticated user is a GitHub App
+     installation token, which is what Actions' `GITHUB_TOKEN` is. Its
+     repositories are visible only through
+     `GET /installation/repositories`, whose entries live under a
+     `repositories` key, so that listing is merged in as well.
+
+   `GET /user` is an identity probe, never a precondition: failing it, as an
+   installation token does with HTTP 403, must not fail the scan. The
+   installation listing is likewise optional, so a token with no installation
+   still scans whatever its primary listing returns. A primary listing that
+   cannot be read remains a scan failure.
 
    Each listing is requested with `per_page=100` and increasing `page` until a
-   short page is returned.
+   short page is returned, and all listings merge into one set keyed by
+   canonical URL, so a repository reachable through two endpoints is listed
+   once.
 3. Each entry contributes its `full_name` and its `html_url`, normalized with
    the shared canonical-URL rules. An entry whose `full_name` does not begin
    with the resolved login is ignored, so an authenticated listing cannot add a
@@ -208,13 +221,17 @@ text-rendering rules apply unchanged to the new route and the new job fields.
     an invalid `rescan` value is rejected with HTTP 400.
 11. A token scanning its own user account lists that account's private
     repositories; any other account keeps the public listing.
-12. A response that sends headers and then stalls its body is abandoned at the
+12. An installation token, which cannot name an authenticated user, enumerates
+    through the installation listing merged with the public one instead of
+    failing the scan.
+13. A response that sends headers and then stalls its body is abandoned at the
     deadline rather than blocking the caller.
-13. The Skills page loads every repository an owner scan saved, including a
+14. The Skills page loads every repository an owner scan saved, including a
     selection larger than one results request accepts.
-14. Automated tests cover owner detection, enumeration paging and limits, the
-    listing endpoint chosen per account and credentials, the response deadline
-    and size bound, API failure mapping, skip and rescan behavior, failure
+15. Automated tests cover owner detection, enumeration paging and limits, the
+    listing endpoints chosen per account and credentials including an
+    installation token, the response deadline and size bound, API failure
+    mapping, skip and rescan behavior, failure
     isolation, option validation, report and JSON formatting, the web preview,
     progress, and rejection paths, and a Skills selection above the
     results-endpoint limit.
