@@ -1,4 +1,6 @@
 /target/
+/test-results/
+/playwright-report/
 /.idea/
 *.iml
 *.db

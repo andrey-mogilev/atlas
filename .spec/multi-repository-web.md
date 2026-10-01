@@ -210,6 +210,19 @@ returns a consistent stored snapshot for each response.
     scan grouping, empty states, reload behavior, and mobile/accessibility
     semantics.
 
+### Visual regression contract
+
+The automated browser suite captures reviewed Chromium screenshots of the
+empty Scans page, populated Scans page, populated Skills page, and narrow mobile
+Skills layout. It uses deterministic local fixtures, locale, timezone, color
+scheme, reduced motion, viewport sizes, and normalized generated values.
+
+Normal verification compares rendered screenshots with tracked Linux Chromium
+baselines and must not update them. A mismatch fails with expected, actual, and
+diff artifacts. Baselines may be regenerated only through the documented
+explicit update command after the resulting images have been reviewed. CI uses
+the lockfile's Playwright version and uploads comparison artifacts on failure.
+
 ## 11. Out of scope
 
 - Combining more than one scan or branch from the same repository on Skills.
