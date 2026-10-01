@@ -4,6 +4,7 @@ const token = document.querySelector('meta[name="atlas-token"]').content;
 const isScansPage = location.pathname === "/scans";
 let repositories = [], activeFindings = [], similarityModel = null, selectedFinding = null, activeJob = null, currentText = "";
 let ownerRendered = 0, ownerCompleted = -1;
+const RESULT_BATCH_SIZE = 100;
 const STOP_WORDS = new Set(["a","an","and","are","as","at","be","by","for","from","in","is","it","of","on","or","that","the","this","to","use","with","you","your"]);
 const starredSkills = storedStars();
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -96,9 +97,18 @@ function renderFindings() {
 function storedSelection() { try { const value = JSON.parse(localStorage.getItem("atlas-enabled-repositories") || "{}"); return value && typeof value === "object" ? value : {}; } catch (_) { return {}; } }
 function persistSelection() { try { localStorage.setItem("atlas-enabled-repositories", JSON.stringify(Object.fromEntries(repositories.map(repo => [repo.canonicalUrl, repo.enabled])))); } catch (_) {} }
 function updateAllCheckbox() { const all = $("all-repositories"), enabled = repositories.filter(repo => repo.enabled).length; all.checked = repositories.length > 0 && enabled === repositories.length; all.indeterminate = enabled > 0 && enabled < repositories.length; }
+/** The results endpoint accepts 100 ids, while an organization scan can save far more. */
+async function repositoryResults(ids) {
+  const batches = [];
+  for (let start = 0; start < ids.length; start += RESULT_BATCH_SIZE) {
+    batches.push(ids.slice(start, start + RESULT_BATCH_SIZE));
+  }
+  const responses = await Promise.all(batches.map(batch => api(`/api/repository-results?ids=${batch.join(",")}`)));
+  return responses.flatMap(response => response.repositories);
+}
 async function refreshResults() {
   const previous = selectedFinding, ids = repositories.filter(repo => repo.enabled).map(repo => repo.id);
-  try { const data = await api(`/api/repository-results?ids=${ids.join(",")}`); activeFindings = data.repositories.flatMap(repo => repo.result.findings.map(finding => ({...finding, repositoryId: repo.id, repositoryLabel: repo.label, repositoryUrl: repo.canonicalUrl}))); similarityModel = buildSimilarityModel(activeFindings); if (previous) { const index = activeFindings.findIndex(finding => findingKey(finding) === previous); if (index >= 0) selectFinding(index); else closeSimilarity(); } else closeSimilarity(); renderFindings(); } catch (error) { message("repositories-error", error.message); }
+  try { const selected = await repositoryResults(ids); activeFindings = selected.flatMap(repo => repo.result.findings.map(finding => ({...finding, repositoryId: repo.id, repositoryLabel: repo.label, repositoryUrl: repo.canonicalUrl}))); similarityModel = buildSimilarityModel(activeFindings); if (previous) { const index = activeFindings.findIndex(finding => findingKey(finding) === previous); if (index >= 0) selectFinding(index); else closeSimilarity(); } else closeSimilarity(); renderFindings(); } catch (error) { message("repositories-error", error.message); }
 }
 function repositoryRow(repo, duplicateLabels) {
   const row = element("div", "repository-row"), label = element("label", "repository-check"), checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = repo.enabled; checkbox.addEventListener("change", async () => { repo.enabled = checkbox.checked; persistSelection(); updateAllCheckbox(); await refreshResults(); });

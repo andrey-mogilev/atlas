@@ -36,12 +36,25 @@ inner hyphens, 1–39 characters, not starting or ending with a hyphen.
 Owner targets are expanded through the GitHub REST API over HTTPS:
 
 1. `GET /users/<login>` resolves the account's canonical login and `type`.
-2. `GET /orgs/<login>/repos` for `type` `Organization`, otherwise
-   `GET /users/<login>/repos`, requested with `per_page=100` and increasing
-   `page` until a short page is returned.
+2. The listing endpoint is chosen so that every repository the credentials can
+   reach is included:
+   - `type` `Organization` uses `GET /orgs/<login>/repos`, which already returns
+     the private and internal repositories a token can see.
+   - A user account that is the token's own account, established by comparing
+     `GET /user`'s login case-insensitively, uses
+     `GET /user/repos?affiliation=owner`, which includes private repositories.
+   - Every other user account uses `GET /users/<login>/repos`. That endpoint is
+     public-only by definition, and another account's private repositories
+     cannot be listed through any endpoint, so nothing is lost.
+
+   Each listing is requested with `per_page=100` and increasing `page` until a
+   short page is returned.
 3. Each entry contributes its `full_name` and its `html_url`, normalized with
-   the shared canonical-URL rules. Entries without both fields, and entries
-   whose URL is itself an owner URL, are ignored. Repeated URLs are listed once.
+   the shared canonical-URL rules. An entry whose `full_name` does not begin
+   with the resolved login is ignored, so an authenticated listing cannot add a
+   repository the requested account does not own. Entries without both fields,
+   and entries whose URL is itself an owner URL, are ignored. Repeated URLs are
+   listed once.
 4. Repositories are ordered by bytewise UTF-8 `full_name`, so a scan is
    deterministic and restartable.
 
@@ -51,10 +64,16 @@ Limits and credentials:
   repositories one owner scan considers. Reaching the bound, or exhausting the
   internal page ceiling, marks the plan truncated and is reported to the user.
 - A token from `SKILL_SCAN_GITHUB_TOKEN`, otherwise `GITHUB_TOKEN`, is sent as a
-  bearer token. It makes private and internal repositories visible to the
-  enumeration and raises the API rate limit. Tokens are never stored, logged, or
-  included in any message or API response.
-- Responses are read with bounded size (2 MiB) and bounded timeouts. JSON is
+  bearer token. It makes an organization's private and internal repositories and
+  the token holder's own private repositories visible to the enumeration, and it
+  raises the API rate limit. Tokens are never stored, logged, or included in any
+  message or API response, and are never passed to Git: cloning a private
+  repository the token reveals still depends on the user's Git credentials, and
+  a repository that cannot be cloned is reported as a per-repository failure.
+- Every request is bounded in size (2 MiB) and by one deadline that covers the
+  response body as well as its headers. A server that sends headers and then
+  stalls its body is abandoned at the deadline and reported as category `3`;
+  exceeding the size bound cancels the response and is category `1`. JSON is
   parsed with a YAML safe constructor, so no response can instantiate a Java
   type.
 - Enumeration never fetches or executes repository content; cloning remains the
@@ -187,10 +206,18 @@ text-rendering rules apply unchanged to the new route and the new job fields.
    shows newly scanned repositories and their skills before the scan finishes.
 10. A branch supplied with an owner target fails the job with category `2`, and
     an invalid `rescan` value is rejected with HTTP 400.
-11. Automated tests cover owner detection, enumeration paging and limits, API
-    failure mapping, skip and rescan behavior, failure isolation, option
-    validation, report and JSON formatting, and the web preview, progress, and
-    rejection paths.
+11. A token scanning its own user account lists that account's private
+    repositories; any other account keeps the public listing.
+12. A response that sends headers and then stalls its body is abandoned at the
+    deadline rather than blocking the caller.
+13. The Skills page loads every repository an owner scan saved, including a
+    selection larger than one results request accepts.
+14. Automated tests cover owner detection, enumeration paging and limits, the
+    listing endpoint chosen per account and credentials, the response deadline
+    and size bound, API failure mapping, skip and rescan behavior, failure
+    isolation, option validation, report and JSON formatting, the web preview,
+    progress, and rejection paths, and a Skills selection above the
+    results-endpoint limit.
 
 ## 8. Out of scope
 

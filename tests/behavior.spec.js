@@ -77,3 +77,75 @@ test("starred skills lead the skill list, survive filtering, and persist", async
   await expect(page.locator("#detail-findings .finding")).toHaveCount(3);
   await expect(page.locator("#detail-findings .finding-star")).toHaveCount(0);
 });
+
+// An organization scan can save far more repositories than the results endpoint
+// accepts in one request, so the Skills page has to split its selection.
+test("the Skills page loads a selection larger than one results request allows", async ({page}) => {
+  const count = 101;
+  const repositories = Array.from({length: count}, (_, index) => ({
+    id: index + 1,
+    canonicalUrl: `https://github.com/acme/repo-${index + 1}`,
+    label: `acme/repo-${index + 1}`,
+    latestScanId: index + 1,
+    target: `https://github.com/acme/repo-${index + 1}`,
+    branch: "main",
+    commit: "a".repeat(40),
+    scannedAt: "2026-01-01T00:00:00Z",
+    skillCount: 1,
+    locationCount: 1
+  }));
+  const batchSizes = [];
+
+  await page.route("**/api/repositories", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(repositories)
+  }));
+  await page.route("**/api/repository-results*", route => {
+    const ids = new URL(route.request().url()).searchParams.get("ids").split(",").map(Number);
+    batchSizes.push(ids.length);
+    // The real endpoint rejects more than 100 ids; the stub has to as well.
+    if (ids.length > 100) {
+      return route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({message: "Invalid repository selection"})
+      });
+    }
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        repositories: ids.map(id => {
+          const repository = repositories[id - 1];
+          const link = `${repository.canonicalUrl}/blob/main/skills/one/SKILL.md`;
+          return {
+            ...repository,
+            result: {
+              target: repository.target,
+              branch: "main",
+              commit: repository.commit,
+              text: "",
+              locationCount: 1,
+              findings: [{
+                id: `skl_${id}`,
+                name: `Skill ${id}`,
+                path: "skills/one/SKILL.md",
+                link,
+                description: `Skill ${id}.`,
+                locations: [{id: `skl_${id}`, path: "skills/one/SKILL.md", link}]
+              }]
+            }
+          };
+        })
+      })
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.locator(".repository-row")).toHaveCount(count);
+  await expect(page.locator("#findings .finding")).toHaveCount(count);
+  await expect(page.locator("#repositories-error")).toBeHidden();
+  expect(batchSizes).toEqual([100, 1]);
+  expect(await visibleNames(page)).toContain("Skill 101");
+});

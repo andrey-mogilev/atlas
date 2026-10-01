@@ -208,6 +208,12 @@ repository selections return 400. The existing token, host/origin checks,
 request limits, cache controls, content security policy, and safe text rendering
 apply to both pages and all new routes.
 
+The combined-results route accepts at most 100 repository IDs per request, while
+an organization scan can save many more. The Skills page therefore splits its
+selection into requests of at most 100 IDs and concatenates the responses in
+request order, so a selection of any size renders rather than failing as an
+invalid selection.
+
 Repository enablement and starred skills are not written to SQLite and do not
 require a server mutation endpoint. The server is the authority for latest-scan
 selection and returns a consistent stored snapshot for each response.

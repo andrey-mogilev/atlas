@@ -1,8 +1,13 @@
 package dev.atlas.skillscan
 
+import com.sun.net.httpserver.HttpServer
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.yaml.snakeyaml.Yaml
+import java.net.InetSocketAddress
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class OwnerScanTest {
     private val plain = CliPresentation(false, false, 80)
@@ -14,7 +19,7 @@ class OwnerScanTest {
     }
 
     private fun api(maxRepositories: Int = DEFAULT_MAX_OWNER_REPOSITORIES, requests: MutableList<String> = mutableListOf(),
-                    responses: (String) -> ApiResponse) = GitHubApi(null, maxRepositories) { url, _ ->
+                    token: String? = null, responses: (String) -> ApiResponse) = GitHubApi(token, maxRepositories) { url, _ ->
         requests += url
         responses(url)
     }
@@ -70,6 +75,40 @@ class OwnerScanTest {
         assertEquals("$GITHUB_API_ORIGIN/users/dev/repos?per_page=100&page=1", requests[1])
         assertEquals(listOf("dev/one", "dev/two"), resolved.repositories.map { it.fullName })
         assertTrue(resolved.truncated)
+    }
+
+    @Test fun `a token lists the private repositories of its own user account`() {
+        val requests = mutableListOf<String>()
+        val resolved = api(requests = requests, token = "secret") { url ->
+            when {
+                url.endsWith("/users/Dev") -> ApiResponse(200, account("Dev", "User"))
+                url.endsWith("/user") -> ApiResponse(200, """{"login":"dev","type":"User"}""")
+                url.contains("page=1") -> ApiResponse(200, listing("Dev/private-only", "other/not-mine"))
+                else -> ApiResponse(200, "[]")
+            }
+        }.plan("Dev")
+        assertEquals(listOf("$GITHUB_API_ORIGIN/users/Dev", "$GITHUB_API_ORIGIN/user",
+            "$GITHUB_API_ORIGIN/user/repos?affiliation=owner&per_page=100&page=1"), requests)
+        assertEquals(listOf("Dev/private-only"), resolved.repositories.map { it.fullName },
+            "the authenticated listing also returns repositories the account does not own")
+    }
+
+    @Test fun `another account keeps the public listing even with a token`() {
+        for (type in listOf("User", "Organization")) {
+            val requests = mutableListOf<String>()
+            api(requests = requests, token = "secret") { url ->
+                when {
+                    url.endsWith("/users/acme") -> ApiResponse(200, account("acme", type))
+                    url.endsWith("/user") -> ApiResponse(200, """{"login":"someone-else","type":"User"}""")
+                    else -> ApiResponse(200, listing("acme/one"))
+                }
+            }.plan("acme")
+            val expected = if (type == "Organization") "$GITHUB_API_ORIGIN/orgs/acme/repos?per_page=100&page=1"
+            else "$GITHUB_API_ORIGIN/users/acme/repos?per_page=100&page=1"
+            assertEquals(expected, requests.last(), type)
+            // The organization endpoint already includes private repositories, so it is never probed.
+            assertEquals(type == "User", requests.contains("$GITHUB_API_ORIGIN/user"), type)
+        }
     }
 
     @Test fun `GitHub failures are reported without exposing credentials`() {
@@ -187,6 +226,65 @@ class OwnerScanTest {
         assertEquals("failed", failed["status"])
         assertEquals(4, failed["code"])
         assertEquals("branch not found", failed["message"])
+    }
+
+    /** Serves one response, then holds the connection open until the test releases it. */
+    private fun server(stall: CountDownLatch, body: String, chunks: Int = 1): HttpServer {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/listing") { exchange ->
+            exchange.sendResponseHeaders(200, 0)
+            try {
+                repeat(chunks) {
+                    exchange.responseBody.write(body.toByteArray())
+                    exchange.responseBody.flush()
+                }
+                if (stall.count > 0) stall.await(20, TimeUnit.SECONDS)
+            } catch (_: Exception) {
+                // The client cancelling the exchange is the expected outcome of the deadline test.
+            } finally {
+                runCatching { exchange.close() }
+            }
+        }
+        server.executor = Executors.newSingleThreadExecutor()
+        server.start()
+        return server
+    }
+
+    @Test fun `a response body that stalls after its headers is abandoned at the deadline`() {
+        val stall = CountDownLatch(1)
+        val server = server(stall, "[")
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/listing"
+            val started = System.nanoTime()
+            val failure = assertThrows(ScanFailure::class.java) {
+                githubApiRequest(url, null, java.time.Duration.ofMillis(500))
+            }
+            val elapsed = java.time.Duration.ofNanos(System.nanoTime() - started)
+            assertEquals(3, failure.exitCode)
+            assertTrue(failure.message!!.contains("did not answer"), failure.message)
+            assertTrue(elapsed < java.time.Duration.ofSeconds(10), "the read blocked for $elapsed")
+        } finally {
+            stall.countDown()
+            server.stop(0)
+        }
+    }
+
+    @Test fun `a response body is read in full below the limit and refused above it`() {
+        val stall = CountDownLatch(0)
+        val server = server(stall, "[]")
+        try {
+            val url = "http://127.0.0.1:${server.address.port}/listing"
+            val response = githubApiRequest(url, null, java.time.Duration.ofSeconds(20))
+            assertEquals(200, response.status)
+            assertEquals("[]", response.body)
+            val oversized = assertThrows(ScanFailure::class.java) {
+                githubApiRequest(url, null, java.time.Duration.ofSeconds(20), maxBytes = 1)
+            }
+            assertEquals(1, oversized.exitCode)
+            assertTrue(oversized.message!!.contains("exceeded the configured limit"), oversized.message)
+        } finally {
+            server.stop(0)
+        }
     }
 
     @Test fun `an owner without visible repositories is reported explicitly`() {
