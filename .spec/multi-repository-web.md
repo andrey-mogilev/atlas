@@ -12,6 +12,12 @@ change the `skill-atlas scan` CLI contract, repository identity rules, scan
 execution, skill discovery, stable location IDs, or persistence semantics in
 the base specification.
 
+Scanning a whole GitHub user or organization adds repositories to this corpus
+one at a time. Its confirmation dialog, rescan choice, progress reporting, and
+incremental refresh are specified in
+[`organization-scan.md`](organization-scan.md); everything below applies
+unchanged to the repositories it creates.
+
 ## 2. Terminology and selection rules
 
 - A **repository** is an existing `repositories` record identified by its
@@ -201,6 +207,12 @@ repository. Unknown repository/scan IDs return 404; malformed or excessive
 repository selections return 400. The existing token, host/origin checks,
 request limits, cache controls, content security policy, and safe text rendering
 apply to both pages and all new routes.
+
+The combined-results route accepts at most 100 repository IDs per request, while
+an organization scan can save many more. The Skills page therefore splits its
+selection into requests of at most 100 IDs and concatenates the responses in
+request order, so a selection of any size renders rather than failing as an
+invalid selection.
 
 Repository enablement and starred skills are not written to SQLite and do not
 require a server mutation endpoint. The server is the authority for latest-scan

@@ -3,6 +3,8 @@ const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="atlas-token"]').content;
 const isScansPage = location.pathname === "/scans";
 let repositories = [], activeFindings = [], similarityModel = null, selectedFinding = null, activeJob = null, currentText = "";
+let ownerRendered = 0, ownerCompleted = -1;
+const RESULT_BATCH_SIZE = 100;
 const STOP_WORDS = new Set(["a","an","and","are","as","at","be","by","for","from","in","is","it","of","on","or","that","the","this","to","use","with","you","your"]);
 const starredSkills = storedStars();
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -95,9 +97,18 @@ function renderFindings() {
 function storedSelection() { try { const value = JSON.parse(localStorage.getItem("atlas-enabled-repositories") || "{}"); return value && typeof value === "object" ? value : {}; } catch (_) { return {}; } }
 function persistSelection() { try { localStorage.setItem("atlas-enabled-repositories", JSON.stringify(Object.fromEntries(repositories.map(repo => [repo.canonicalUrl, repo.enabled])))); } catch (_) {} }
 function updateAllCheckbox() { const all = $("all-repositories"), enabled = repositories.filter(repo => repo.enabled).length; all.checked = repositories.length > 0 && enabled === repositories.length; all.indeterminate = enabled > 0 && enabled < repositories.length; }
+/** The results endpoint accepts 100 ids, while an organization scan can save far more. */
+async function repositoryResults(ids) {
+  const batches = [];
+  for (let start = 0; start < ids.length; start += RESULT_BATCH_SIZE) {
+    batches.push(ids.slice(start, start + RESULT_BATCH_SIZE));
+  }
+  const responses = await Promise.all(batches.map(batch => api(`/api/repository-results?ids=${batch.join(",")}`)));
+  return responses.flatMap(response => response.repositories);
+}
 async function refreshResults() {
   const previous = selectedFinding, ids = repositories.filter(repo => repo.enabled).map(repo => repo.id);
-  try { const data = await api(`/api/repository-results?ids=${ids.join(",")}`); activeFindings = data.repositories.flatMap(repo => repo.result.findings.map(finding => ({...finding, repositoryId: repo.id, repositoryLabel: repo.label, repositoryUrl: repo.canonicalUrl}))); similarityModel = buildSimilarityModel(activeFindings); if (previous) { const index = activeFindings.findIndex(finding => findingKey(finding) === previous); if (index >= 0) selectFinding(index); else closeSimilarity(); } else closeSimilarity(); renderFindings(); } catch (error) { message("repositories-error", error.message); }
+  try { const selected = await repositoryResults(ids); activeFindings = selected.flatMap(repo => repo.result.findings.map(finding => ({...finding, repositoryId: repo.id, repositoryLabel: repo.label, repositoryUrl: repo.canonicalUrl}))); similarityModel = buildSimilarityModel(activeFindings); if (previous) { const index = activeFindings.findIndex(finding => findingKey(finding) === previous); if (index >= 0) selectFinding(index); else closeSimilarity(); } else closeSimilarity(); renderFindings(); } catch (error) { message("repositories-error", error.message); }
 }
 function repositoryRow(repo, duplicateLabels) {
   const row = element("div", "repository-row"), label = element("label", "repository-check"), checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = repo.enabled; checkbox.addEventListener("change", async () => { repo.enabled = checkbox.checked; persistSelection(); updateAllCheckbox(); await refreshResults(); });
@@ -114,9 +125,108 @@ function rememberJob(id) { try { id ? sessionStorage.setItem("atlas-job", id) : 
 async function inspectScan(scan, button) { try { const result = await api(`/api/history/${scan.id}`); document.querySelectorAll(".history-item").forEach(item => item.removeAttribute("aria-current")); button.setAttribute("aria-current", "true"); $("detail-empty").hidden = true; $("detail").hidden = false; $("detail-target").textContent = result.target; $("detail-branch").textContent = result.branch; $("detail-commit").textContent = result.commit; $("detail-count").textContent = counts(result.findings.length, result.locationCount); $("detail-findings").replaceChildren(); result.findings.forEach((finding, index) => $("detail-findings").append(findingCard({...finding, repositoryId: scan.repositoryId, repositoryLabel: scan.label}, index, false))); currentText = result.text; $("plain-output").textContent = currentText; $("copy-output").textContent = "Copy output"; message("error", ""); } catch (error) { message("error", error.message); } }
 function scanButton(scan, label) { const button = element("button", "history-item"); button.type = "button"; button.append(element("strong", "", label), element("span", "", `${scan.branch} · ${counts(scan.skillCount, scan.locationCount)}`), element("span", "", new Date(scan.scannedAt).toLocaleString())); button.addEventListener("click", () => inspectScan(scan, button)); return button; }
 async function history() { try { const [scans, repos] = await Promise.all([api("/api/history"), api("/api/repositories")]), labels = new Map(repos.map(repo => [repo.id, repo.label])); message("history-error", ""); $("history").replaceChildren(); if (!scans.length) { $("history").append(element("p", "history-empty", "No saved scans yet. Your first scan will appear here.")); return; } const groups = new Map(); for (const scan of scans) { scan.label = labels.get(scan.repositoryId) || scan.canonicalUrl; if (!groups.has(scan.repositoryId)) groups.set(scan.repositoryId, []); groups.get(scan.repositoryId).push(scan); } for (const repo of repos) { const group = groups.get(repo.id); if (!group) continue; const section = element("section", "history-group"), heading = element("h3", "", group[0].label); section.append(heading, scanButton(group[0], "Latest scan")); if (group.length > 1) { const older = element("details", "older-scans"); older.append(element("summary", "", `${group.length - 1} older ${group.length === 2 ? "scan" : "scans"}`)); group.slice(1).forEach(scan => older.append(scanButton(scan, scan.branch))); section.append(older); } $("history").append(section); } } catch (error) { message("history-error", error.message); } }
-async function poll(id) { try { const job = await api(`/api/jobs/${id}`); if (activeJob !== id) return; if (job.status === "running") { setTimeout(() => poll(id), 750); return; } activeJob = null; rememberJob(null); $("scan-button").disabled = false; $("scan-button").textContent = "Scan source ↗"; if (job.status === "completed") { message("status", "Scan complete. Results saved on this computer."); await history(); await loadRepositories(); } else { message("status", ""); message("error", `Scan failed (code ${job.code}): ${job.message}`); } } catch (error) { activeJob = null; rememberJob(null); $("scan-button").disabled = false; $("scan-button").textContent = "Scan source ↗"; message("status", ""); message("error", `${error.message}. Refresh saved scans to check for results.`); } }
-function trackJob(id) { activeJob = id; rememberJob(id); $("scan-button").disabled = true; $("scan-button").textContent = "Scanning…"; message("status", "Scanning source… You can browse saved scans while you wait."); poll(id); }
+function repositoryWord(count) { return `${count} ${count === 1 ? "repository" : "repositories"}`; }
+function ownerDetail(repo) { return repo.status === "failed" ? `code ${repo.code}: ${repo.message}` : counts(repo.skillCount, repo.locationCount); }
+function ownerSummary(job) {
+  const parts = [`${job.completed} of ${repositoryWord(job.total)}`];
+  if (job.scanned) parts.push(`${job.scanned} scanned`);
+  if (job.skipped) parts.push(`${job.skipped} already scanned`);
+  if (job.failed) parts.push(`${job.failed} failed`);
+  parts.push(counts(job.skillCount, job.locationCount));
+  return parts.join(" · ");
+}
+function renderOwnerProgress(job) {
+  $("owner-progress").hidden = false;
+  $("owner-name").textContent = `${job.login} (${job.type.toLowerCase()})`;
+  $("owner-bar").max = Math.max(job.total, 1);
+  $("owner-bar").value = job.completed;
+  $("owner-summary").textContent = ownerSummary(job);
+  for (const repo of job.repositories.slice(ownerRendered)) {
+    const item = element("li", `owner-repository ${repo.status}`);
+    item.append(element("span", "owner-repository-name", repo.name), element("span", `owner-status ${repo.status}`, repo.status),
+      element("span", "owner-repository-detail", ownerDetail(repo)));
+    $("owner-repositories").append(item);
+  }
+  ownerRendered = job.repositories.length;
+}
+function confirmOwnerScan(preview) {
+  return new Promise(resolve => {
+    const dialog = $("owner-dialog");
+    $("owner-dialog-text").textContent = `${preview.login} is a GitHub ${preview.type.toLowerCase()} that owns ${repositoryWord(preview.repositoryCount)}. Each one is cloned in turn, so this scan can take a long time.`;
+    $("owner-dialog-known").textContent = preview.alreadyScannedCount
+      ? `${preview.alreadyScannedCount} of them already have saved results.`
+      : "None of them have saved results yet.";
+    $("owner-dialog-truncated").hidden = !preview.truncated;
+    $("owner-rescan").checked = false;
+    const finish = value => { resolve(value); dialog.close(); };
+    $("owner-start").onclick = () => finish({rescan: $("owner-rescan").checked});
+    $("owner-cancel").onclick = () => finish(null);
+    dialog.addEventListener("close", () => resolve(null), {once: true});
+    dialog.showModal();
+  });
+}
+async function poll(id) {
+  try {
+    const job = await api(`/api/jobs/${id}`);
+    if (activeJob !== id) return;
+    const owner = job.kind === "owner";
+    if (owner) {
+      renderOwnerProgress(job);
+      if (job.completed !== ownerCompleted) {
+        ownerCompleted = job.completed;
+        if (job.status === "running") message("status", `Scanning repositories… ${ownerSummary(job)}`);
+        await history();
+        if (activeJob !== id) return;
+      }
+    }
+    if (job.status === "running") { setTimeout(() => poll(id), 750); return; }
+    activeJob = null; rememberJob(null);
+    $("scan-button").disabled = false; $("scan-button").textContent = "Scan source ↗";
+    if (job.status === "completed") {
+      message("status", owner
+        ? `Organization scan complete: ${job.scanned} scanned, ${job.skipped} already scanned, ${job.failed} failed. ${counts(job.skillCount, job.locationCount)}.`
+        : "Scan complete. Results saved on this computer.");
+      await history();
+      await loadRepositories();
+    } else { message("status", ""); message("error", `Scan failed (code ${job.code}): ${job.message}`); }
+  } catch (error) { activeJob = null; rememberJob(null); $("scan-button").disabled = false; $("scan-button").textContent = "Scan source ↗"; message("status", ""); message("error", `${error.message}. Refresh saved scans to check for results.`); }
+}
+function trackJob(id) { activeJob = id; rememberJob(id); ownerRendered = 0; ownerCompleted = -1; $("owner-repositories").replaceChildren(); $("owner-progress").hidden = true; $("scan-button").disabled = true; $("scan-button").textContent = "Scanning…"; message("status", "Scanning source… You can browse saved scans while you wait."); poll(id); }
+/** Keeps the Skills page in step with an organization scan started in this tab. */
+async function watchActiveScan() {
+  let id = null;
+  try { id = sessionStorage.getItem("atlas-job"); } catch (_) { return; }
+  if (!id) return;
+  let seen = -1;
+  while (true) {
+    let job;
+    try { job = await api(`/api/jobs/${id}`); } catch (_) { return; }
+    if (job.kind === "owner" && job.completed !== seen) { seen = job.completed; await loadRepositories(); }
+    if (job.status !== "running") return;
+    await new Promise(resolve => setTimeout(resolve, 1500));
+  }
+}
 
 $("skills-page").hidden = isScansPage; $("scans-page").hidden = !isScansPage; $(isScansPage ? "scans-nav" : "skills-nav").setAttribute("aria-current", "page");
-if (isScansPage) { $("page-heading").textContent = "Scan and inspect repositories."; $("page-intro").textContent = "Create scans and browse saved results by repository."; $("scan-form").addEventListener("submit", async event => { event.preventDefault(); message("error", ""); message("status", "Starting scan…"); $("scan-button").disabled = true; try { const body = new URLSearchParams({target: $("target").value, branch: $("branch").value}), job = await api("/api/scans", {method: "POST", body}); trackJob(job.id); } catch (error) { $("scan-button").disabled = false; message("status", ""); message("error", error.message); } }); $("copy-output").addEventListener("click", async () => { try { await navigator.clipboard.writeText(currentText); $("copy-output").textContent = "Copied"; } catch (_) { $("copy-output").textContent = "Select the output below to copy"; } }); $("refresh-history").addEventListener("click", history); history(); try { const saved = sessionStorage.getItem("atlas-job"); if (saved) trackJob(saved); } catch (_) {} }
-else { $("close-similarity").addEventListener("click", closeSimilarity); $("skill-filter").addEventListener("input", renderFindings); $("refresh-repositories").addEventListener("click", loadRepositories); loadRepositories(); }
+async function startScan() {
+  message("error", "");
+  message("status", "Checking the source…");
+  $("scan-button").disabled = true;
+  try {
+    const target = $("target").value;
+    const preview = await api("/api/targets", {method: "POST", body: new URLSearchParams({target})});
+    let rescan = false;
+    if (preview.kind === "owner") {
+      if (!preview.repositoryCount) { $("scan-button").disabled = false; message("status", `${preview.login} owns no repositories that Skill Atlas can read.`); return; }
+      const choice = await confirmOwnerScan(preview);
+      if (!choice) { $("scan-button").disabled = false; message("status", "Organization scan cancelled."); return; }
+      rescan = choice.rescan;
+    }
+    message("status", "Starting scan…");
+    const body = new URLSearchParams({target, branch: $("branch").value, rescan: String(rescan)});
+    trackJob((await api("/api/scans", {method: "POST", body})).id);
+  } catch (error) { $("scan-button").disabled = false; message("status", ""); message("error", error.message); }
+}
+
+if (isScansPage) { $("page-heading").textContent = "Scan and inspect repositories."; $("page-intro").textContent = "Create scans and browse saved results by repository."; $("scan-form").addEventListener("submit", event => { event.preventDefault(); startScan(); }); $("copy-output").addEventListener("click", async () => { try { await navigator.clipboard.writeText(currentText); $("copy-output").textContent = "Copied"; } catch (_) { $("copy-output").textContent = "Select the output below to copy"; } }); $("refresh-history").addEventListener("click", history); history(); try { const saved = sessionStorage.getItem("atlas-job"); if (saved) trackJob(saved); } catch (_) {} }
+else { $("close-similarity").addEventListener("click", closeSimilarity); $("skill-filter").addEventListener("input", renderFindings); $("refresh-repositories").addEventListener("click", loadRepositories); loadRepositories().then(watchActiveScan); }

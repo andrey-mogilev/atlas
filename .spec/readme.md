@@ -6,6 +6,12 @@ contracts supersede the single-result web details retained in section 10 below;
 the CLI, persistence, scanning, security, and formatting contracts here remain
 authoritative.
 
+Scanning every repository owned by a GitHub user or organization is specified in
+[`organization-scan.md`](organization-scan.md). It adds the
+`--scan-organizations` and `--rescan` options, GitHub repository enumeration,
+and the web confirmation and progress flow. Each owned repository is scanned
+under the contracts in this document.
+
 ## 1. Purpose
 
 Provide a command-line tool that inspects a Git repository or local folder,
@@ -18,6 +24,10 @@ The initial command is:
 ```text
 scan <repository-url-or-folder> [--branch <branch-name>] [--verbose | --json] [--color auto|always|never]
 ```
+
+A GitHub URL that names a user or organization rather than a repository is
+refused unless `--scan-organizations` is supplied; see
+[`organization-scan.md`](organization-scan.md).
 
 For every unique skill, the command shows its name, human-readable description,
 and all repository-relative paths. Verbose and JSON modes expose stable local
@@ -56,7 +66,7 @@ IDs, full source links, and the full scanned commit SHA.
 ### Synopsis
 
 ```text
-skill-atlas scan <repository-url-or-folder> [--branch <branch-name>] [--verbose | --json] [--color auto|always|never]
+skill-atlas scan <repository-url-or-folder> [--branch <branch-name>] [--scan-organizations [--rescan]] [--verbose | --json] [--color auto|always|never]
 ```
 
 `<repository-url-or-folder>` may be a Git URL accepted by the installed Git
@@ -79,9 +89,16 @@ only a valid Git branch short name (for example, `release/2026.1`), not an
 arbitrary ref, tag, or commit SHA. A missing, inaccessible, or non-branch ref
 is a branch-resolution failure (exit `4`).
 
+`--scan-organizations` (also accepted as `-scan-organizations`) allows a GitHub
+user or organization URL and scans every repository that account owns.
+`--rescan` requires it and rescans repositories that already have saved results.
+Both are specified in [`organization-scan.md`](organization-scan.md).
+
 Options may precede or follow the single target. Unknown/duplicate options,
-missing values/targets, extra targets, invalid color modes, and combining
-`--verbose` with `--json` fail with exit 2 before scanning or persistence.
+missing values/targets, extra targets, invalid color modes, combining
+`--verbose` with `--json`, combining `--branch` with `--scan-organizations`, and
+`--rescan` without `--scan-organizations` fail with exit 2 before scanning or
+persistence.
 Argument-validation diagnostics are always plain text.
 `skill-atlas --help` and `skill-atlas scan --help` (also `-h`) print help and
 exit 0 without accessing sources or the database.
@@ -179,6 +196,10 @@ are not a separate structured protocol.
 | `4` | The selected branch or its head commit could not be resolved. |
 | `5` | The repository could be read but scan data could not be persisted. |
 | `1` | Any other unexpected operational failure. |
+
+An organization scan exits `0` when every planned repository was scanned or
+reported from saved results, and `1` when at least one repository failed. A
+GitHub owner URL supplied without `--scan-organizations` exits `2`.
 
 ## 4. Repository resolution and scanning behavior
 
@@ -358,7 +379,10 @@ Identity rules:
 - An unreadable or non-UTF-8 `SKILL.md` aborts the scan before persistence.
   Malformed YAML front matter falls back to Markdown description extraction.
 - The default limits are 1 MiB per `SKILL.md` and 10 MiB total, configurable via
-  `SKILL_SCAN_MAX_FILE_BYTES` and `SKILL_SCAN_MAX_TOTAL_BYTES`.
+  `SKILL_SCAN_MAX_FILE_BYTES` and `SKILL_SCAN_MAX_TOTAL_BYTES`. An organization
+  scan considers at most `SKILL_SCAN_MAX_OWNER_REPOSITORIES` repositories
+  (default 500) and may read a GitHub token from `SKILL_SCAN_GITHUB_TOKEN`,
+  otherwise `GITHUB_TOKEN`.
 - Private repositories work through the user's existing Git credentials.
 
 ## 10. Local web interface
@@ -457,7 +481,8 @@ It is not an authentication system against other processes on the same machine.
 | --- | --- |
 | `GET /` | Multi-repository Skills page. |
 | `GET /scans` | Scan form and repository-grouped saved scan history. |
-| `POST /api/scans` | URL-encoded `target` and optional `branch`; HTTP 202 with `{id,status:"running"}`. |
+| `POST /api/targets` | URL-encoded `target`; reports whether it is a repository or a GitHub owner before scanning. |
+| `POST /api/scans` | URL-encoded `target` and optional `branch` and `rescan`; HTTP 202 with `{id,status:"running"}`. |
 | `GET /api/jobs/<id>` | `{id,status}`; completed jobs add `result`, failed jobs add `code` and `message`. |
 | `GET /api/repositories` | Repositories with canonical identity and latest-scan summary. |
 | `GET /api/repository-results?ids=<comma-separated-ids>` | Latest persisted result for each requested repository. Empty selection is valid; malformed, duplicate, or more than 100 IDs return 400. |

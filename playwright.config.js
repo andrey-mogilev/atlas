@@ -5,7 +5,8 @@ const {defineConfig, devices} = require("@playwright/test");
 module.exports = defineConfig({
   testDir: "./tests",
   outputDir: "./test-results",
-  timeout: 120_000,
+  // The walkthrough records three live organization scans at demonstration pace.
+  timeout: 300_000,
   fullyParallel: false,
   workers: 1,
   reporter: "line",
