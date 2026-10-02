@@ -10,15 +10,15 @@
 
 ## Context
 
-Three defects in the first implementation of owner scanning were found by
+Four defects in the first implementation of owner scanning were found by
 review and each was confirmed against a live system rather than argued from
 the documentation alone.
 
 1. `GET /users/<login>/repos` is public-only *by definition*, including when a
    token is sent. Measured on 2026-10-01 with a valid token for
-   `andrey-mogilev`: the public endpoint returned 3 repositories and no private
-   one, while `GET /user/repos?affiliation=owner` returned 4 including 1
-   private. A documented promise that a token reveals private repositories was
+   an authenticated user account: the public endpoint omitted a private
+   repository that `GET /user/repos?affiliation=owner` returned. A documented
+   promise that a token reveals private repositories was
    therefore false for user accounts.
 2. `HttpRequest.Builder.timeout` bounds the response headers, not a body read
    through `BodyHandlers.ofInputStream`. A local `HttpServer` that sent headers,
